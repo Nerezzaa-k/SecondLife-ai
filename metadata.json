@@ -1,0 +1,7 @@
+{
+  "name": "SecondLife AI",
+  "description": "Smart Choices. Longer Lives. Mobile-first circular economy assistant deciding whether to repair, borrow, donate, repurpose, or replace items with Cloudinary & Gemini vision.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
