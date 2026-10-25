@@ -3,6 +3,7 @@
 > A circular economy decision engine and neighborhood sharing platform that prevents landfill waste, facilitates local borrowing and donations, and diagnoses repairable household items with multimodal AI.
 
 ---
+Live demo: https://secondlife-ai-axwi.onrender.com
 
 ## 📸 Screenshots & Previews
 
