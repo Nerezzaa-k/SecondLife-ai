@@ -29,7 +29,10 @@ import {
   buildShareableImpactCardUrl,
   buildCloudinaryVideoUrl,
   buildVideoPosterUrl,
+  buildCloudinaryUrl,
+  getActiveCloudName,
 } from '../config/cloudinary';
+import { compressAndResizeImage } from '../utils/imageCompressor';
 import {
   supabase,
   isSupabaseConfigured,
@@ -88,6 +91,8 @@ interface AppContextType {
   uploadProgress: number;
   isAnalyzing: boolean;
   analysisError: string | null;
+  analysisStage: 'idle' | 'optimizing' | 'uploading' | 'analyzing' | 'finalizing';
+  analysisStageMessage: string;
 
   // Actions
   analyzePhoto: (fileOrUrl: File | string, description?: string) => Promise<void>;
@@ -247,6 +252,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisStage, setAnalysisStage] = useState<'idle' | 'optimizing' | 'uploading' | 'analyzing' | 'finalizing'>('idle');
+  const [analysisStageMessage, setAnalysisStageMessage] = useState<string>('');
   const [lastAnalyzedFileOrUrl, setLastAnalyzedFileOrUrl] = useState<File | string | null>(null);
 
   // User Stats & Badges (Phase 4 Real Impact)
@@ -998,7 +1005,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
-  // Main flow: Upload photo -> Cloudinary processes it -> Gemini analyzes it -> Best Next Action
+  // Main flow: Browser Compress -> Cloudinary Upload -> Parallel Gemini Analysis & Media Processing -> Best Next Action
   const analyzePhoto = async (fileOrUrl: File | string, description = '') => {
     setLastAnalyzedFileOrUrl(fileOrUrl);
     setAnalysisError(null);
@@ -1007,69 +1014,118 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setCurrentScreen('analyze');
 
     try {
-      let asset: CloudinaryAsset;
-      let base64Image = '';
+      let fileToProcess: File | Blob;
+      let compressedBase64 = '';
+      let parallelMediaTasks: Promise<void> | null = null;
+
+      // Stage 1: Optimize & Compress image in browser (max 1600px long side, JPEG quality 0.85, skip tiny images)
+      setAnalysisStage('optimizing');
+      setAnalysisStageMessage('Resizing and compressing photo in browser...');
+      setUploadProgress(15);
 
       if (typeof fileOrUrl === 'string') {
-        setUploadProgress(40);
         const response = await fetch(fileOrUrl);
         const blob = await response.blob();
-        setUploadProgress(70);
-        base64Image = await fileToBase64(blob);
-
-        const { data: sessionData } = await supabase.auth.getSession();
-        const sessionToken = sessionData.session?.access_token;
-        const uploadRes = await uploadImageToCloudinary(blob, (p) => setUploadProgress(p), sessionToken);
-        asset = uploadRes.asset;
-        if (uploadRes.notice) {
-          showToast(uploadRes.notice, 'info');
-        }
+        fileToProcess = blob;
       } else {
-        base64Image = await fileToBase64(fileOrUrl);
-        const { data: sessionData } = await supabase.auth.getSession();
-        const sessionToken = sessionData.session?.access_token;
-        const uploadRes = await uploadImageToCloudinary(fileOrUrl, (p) => setUploadProgress(p), sessionToken);
-        asset = uploadRes.asset;
-        if (uploadRes.notice) {
-          showToast(uploadRes.notice, 'info');
-        }
+        fileToProcess = fileOrUrl;
+      }
+
+      const compression = await compressAndResizeImage(fileToProcess, 1600, 0.85);
+      fileToProcess = compression.file;
+      compressedBase64 = compression.base64;
+      setUploadProgress(30);
+
+      // Stage 2: Run Gemini Vision Analysis in PARALLEL with Cloudinary Upload, Moderation & phash
+      setAnalysisStage('analyzing');
+      setAnalysisStageMessage('AI diagnostics and media processing running in parallel...');
+      setIsAnalyzing(true);
+      setIsUploading(true);
+      setUploadProgress(35);
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const sessionToken = sessionData.session?.access_token;
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (sessionToken) {
+        headers['Authorization'] = `Bearer ${sessionToken}`;
+      }
+
+      // Promise A: Gemini Vision call using compressed base64 (starts immediately in memory, zero upload wait)
+      const geminiPromise = fetch('/api/analyze', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          imageBase64: compressedBase64,
+          description,
+        }),
+      });
+
+      // Promise B: Cloudinary media upload (handles signed upload, background removal asset prep, moderation & phash)
+      const uploadPromise = uploadImageToCloudinary(
+        fileToProcess,
+        (p) => setUploadProgress(35 + Math.round(p * 0.4)),
+        sessionToken
+      );
+
+      // Await both in parallel
+      const [uploadRes, apiRes] = await Promise.all([uploadPromise, geminiPromise]);
+      const asset = uploadRes.asset;
+      if (uploadRes.notice) {
+        showToast(uploadRes.notice, 'info');
       }
 
       setIsUploading(false);
       setCurrentAsset(asset);
       setUserDescription(description);
 
-      // Send to Gemini Vision API via server endpoint
-      setIsAnalyzing(true);
-      const { data: sessionData } = await supabase.auth.getSession();
-      const currentToken = sessionData.session?.access_token;
+      // Non-blocking parallel media tasks: phash duplicate check & pre-warming background cutout
+      parallelMediaTasks = (async () => {
+        if (asset.phash && sessionToken) {
+          try {
+            const dupRes = await fetch('/api/cloudinary/check-duplicate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sessionToken}`,
+              },
+              body: JSON.stringify({
+                phash: asset.phash,
+                userId: user?.id,
+              }),
+            });
+            if (dupRes.ok) {
+              const dupData = await dupRes.json();
+              if (dupData.isDuplicate && dupData.warningMessage) {
+                showToast(dupData.warningMessage, 'warning');
+              }
+            }
+          } catch (dupErr) {
+            console.debug('Background duplicate check non-blocking error:', dupErr);
+          }
+        }
 
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (currentToken) {
-        headers['Authorization'] = `Bearer ${currentToken}`;
-      }
-
-      const apiRes = await fetch('/api/analyze', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          imageBase64: base64Image,
-          imageUrl: asset.originalUrl,
-          description,
-          tags: asset.tags,
-        }),
-      });
+        if (asset.cleanedUrl && asset.cleanedUrl !== asset.originalUrl) {
+          const warmImg = new Image();
+          warmImg.src = asset.cleanedUrl;
+        }
+      })();
 
       if (apiRes.status === 401) {
         showToast('Please sign in to analyze items with AI.', 'warning');
         openAuthModal('signin');
         setIsAnalyzing(false);
+        setAnalysisStage('idle');
         return;
       }
 
       if (!apiRes.ok) {
         throw new Error(`Analysis server returned ${apiRes.status}`);
       }
+
+      setAnalysisStage('finalizing');
+      setAnalysisStageMessage('Finalizing circular recommendations & carbon savings...');
+      setUploadProgress(95);
 
       const resData = await apiRes.json();
       if (!resData.data) {
@@ -1100,9 +1156,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             if (error) console.warn('Could not persist analysis to Supabase:', error);
           });
       }
+
+      setUploadProgress(100);
+      setAnalysisStage('idle');
+      setAnalysisStageMessage('');
+
+      // Await parallel media tasks cleanly
+      if (parallelMediaTasks) {
+        await parallelMediaTasks.catch(() => {});
+      }
     } catch (err: any) {
       console.error('Photo analysis error:', err);
       setAnalysisError(err.message || 'Analysis could not be completed. Please check your photo and try again.');
+      setAnalysisStage('idle');
+      setAnalysisStageMessage('');
     } finally {
       setIsUploading(false);
       setIsAnalyzing(false);
@@ -2276,6 +2343,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         uploadProgress,
         isAnalyzing,
         analysisError,
+        analysisStage,
+        analysisStageMessage,
         analyzePhoto,
         retryAnalysis,
         updateAnalysisField,

@@ -1,5 +1,6 @@
 import { CloudinaryAsset, CloudinaryTransformationInfo } from '../types';
 import { supabase } from './supabase';
+import { compressAndResizeImage } from '../utils/imageCompressor';
 
 /**
  * CLOUDINARY CONFIGURATION (PRODUCTION ARCHITECTURE)
@@ -286,6 +287,12 @@ export async function uploadImageToCloudinary(
 
   const localPreviewUrl = URL.createObjectURL(file);
 
+  // Pre-compress and resize image in browser (max 1600px, quality 0.85, skip tiny images)
+  if (onProgress) onProgress(10);
+  const compression = await compressAndResizeImage(file, 1600, 0.85);
+  const uploadFile = compression.file;
+  const precompressedBase64 = compression.base64;
+
   // 2. Determine auth token
   let authToken = sessionToken;
   if (!authToken) {
@@ -300,9 +307,9 @@ export async function uploadImageToCloudinary(
   // 3. Try Direct Signed Upload if authenticated
   if (authToken) {
     try {
-      if (onProgress) onProgress(15);
-      const fileName = (file as File).name || 'upload.jpg';
-      const mimeType = file.type || 'image/jpeg';
+      if (onProgress) onProgress(20);
+      const fileName = (uploadFile as File).name || 'upload.jpg';
+      const mimeType = uploadFile.type || 'image/jpeg';
 
       const sigRes = await fetch('/api/cloudinary/signature', {
         method: 'POST',
@@ -312,7 +319,7 @@ export async function uploadImageToCloudinary(
         },
         body: JSON.stringify({
           fileName,
-          fileSize: file.size,
+          fileSize: uploadFile.size,
           mimeType,
         }),
       });
@@ -323,7 +330,7 @@ export async function uploadImageToCloudinary(
 
         // Upload directly to Cloudinary using the signature
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', uploadFile);
         formData.append('api_key', sigData.apiKey);
         formData.append('timestamp', String(sigData.timestamp));
         formData.append('signature', sigData.signature);
@@ -362,7 +369,7 @@ export async function uploadImageToCloudinary(
             throw new Error("This photo can't be used. Please upload a clear photo of the item.");
           }
 
-          const originalBytes = cloudData.bytes || file.size;
+          const originalBytes = cloudData.bytes || uploadFile.size;
           const publicId = cloudData.public_id;
           const originalUrl = cloudData.secure_url || buildCloudinaryUrl(publicId, 'f_auto,q_auto', cloud);
           const cleanedUrl = buildCleanedCutoutUrl(publicId, cloud);
@@ -370,8 +377,9 @@ export async function uploadImageToCloudinary(
           const damageCloseupUrl = buildDamageCloseupUrl(publicId, cloud);
           const shareableCardUrl = buildShareableImpactCardUrl(publicId, 2.5, 4.8, 'SecondLife Contributor', cloud);
 
-          // Measure delivered bytes
-          const measurement = await measureDeliveredBytes(thumbnailUrl, originalBytes);
+          // Instant estimate of delivered bytes so we don't delay analysis with blocking network HEAD request
+          const estDelivered = Math.round(originalBytes * 0.18);
+          const estSaved = Math.max(0, Math.round(((originalBytes - estDelivered) / originalBytes) * 100));
 
           if (onProgress) onProgress(100);
 
@@ -384,8 +392,8 @@ export async function uploadImageToCloudinary(
             shareableCardUrl,
             tags: Array.isArray(cloudData.tags) ? cloudData.tags : [],
             bytes: originalBytes,
-            deliveredBytes: measurement.deliveredBytes,
-            savedPercent: measurement.savedPercent,
+            deliveredBytes: estDelivered,
+            savedPercent: estSaved,
             moderationStatus,
             phash: cloudData.phash || undefined,
             isDemoFallback: false,
@@ -399,7 +407,7 @@ export async function uploadImageToCloudinary(
               {
                 name: 'Auto-Format & Quality',
                 code: 'f_auto,q_auto',
-                description: `Saved ${measurement.savedPercent}% bandwidth`,
+                description: `Saved ${estSaved}% bandwidth`,
                 status: 'applied',
               },
               {
@@ -410,6 +418,14 @@ export async function uploadImageToCloudinary(
               },
             ],
           };
+
+          // Update delivered measurement in background without blocking
+          measureDeliveredBytes(thumbnailUrl, originalBytes).then((measurement) => {
+            if (measurement && measurement.deliveredBytes) {
+              asset.deliveredBytes = measurement.deliveredBytes;
+              asset.savedPercent = measurement.savedPercent;
+            }
+          }).catch(() => {});
 
           return { asset };
         }
@@ -425,7 +441,7 @@ export async function uploadImageToCloudinary(
   // 4. Server-mediated upload fallback (/api/upload)
   try {
     if (onProgress) onProgress(30);
-    const base64Data = await fileToBase64(file);
+    const base64Data = precompressedBase64 || await fileToBase64(uploadFile);
     if (onProgress) onProgress(55);
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -438,7 +454,8 @@ export async function uploadImageToCloudinary(
       headers,
       body: JSON.stringify({
         imageBase64: base64Data,
-        mimeType: file.type || 'image/jpeg',
+        mimeType: uploadFile.type || 'image/jpeg',
+        fileSize: uploadFile.size,
       }),
     });
 
@@ -454,13 +471,6 @@ export async function uploadImageToCloudinary(
     // If server flagged moderation as rejected
     if (data.asset?.moderationStatus === 'rejected') {
       throw new Error("This photo can't be used. Please upload a clear photo of the item.");
-    }
-
-    // Measure delivered bytes if not already set
-    if (data.asset && !data.asset.deliveredBytes) {
-      const measurement = await measureDeliveredBytes(data.asset.thumbnailUrl, data.asset.bytes || file.size);
-      data.asset.deliveredBytes = measurement.deliveredBytes;
-      data.asset.savedPercent = measurement.savedPercent;
     }
 
     if (onProgress) onProgress(100);

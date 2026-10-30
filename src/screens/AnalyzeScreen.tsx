@@ -22,6 +22,9 @@ import {
   Star,
   ShieldCheck,
   Upload,
+  Loader2,
+  Zap,
+  Cpu,
 } from 'lucide-react';
 import { BeforeAfterSlider } from '../components/BeforeAfterSlider';
 import { CostComparisonChart } from '../components/CostComparisonChart';
@@ -34,6 +37,9 @@ export const AnalyzeScreen: React.FC = () => {
     currentAnalysis,
     isAnalyzing,
     isUploading,
+    uploadProgress,
+    analysisStage,
+    analysisStageMessage,
     analysisError,
     retryAnalysis,
     updateAnalysisField,
@@ -53,35 +59,143 @@ export const AnalyzeScreen: React.FC = () => {
   const [customFaultText, setCustomFaultText] = useState('');
   const [isReanalyzing, setIsReanalyzing] = useState(false);
 
-  // SKELETON / LOADING STATE
+  // CLEAR MULTI-STAGE PROGRESS UI STATE
   if (isUploading || isAnalyzing) {
+    const stages = [
+      {
+        id: 'optimizing',
+        label: 'Photo Optimization',
+        detail: 'Compressing image to max 1600px in browser',
+        icon: Zap,
+        isCompleted: ['uploading', 'analyzing', 'finalizing'].includes(analysisStage) || uploadProgress > 25,
+        isActive: analysisStage === 'optimizing',
+      },
+      {
+        id: 'uploading',
+        label: 'Cloud Delivery',
+        detail: 'Direct signed Cloudinary media ingestion',
+        icon: Cloud,
+        isCompleted: ['analyzing', 'finalizing'].includes(analysisStage) || uploadProgress > 65,
+        isActive: analysisStage === 'uploading',
+      },
+      {
+        id: 'analyzing',
+        label: 'Gemini Diagnostics',
+        detail: 'Multimodal analysis on lightweight 1024px image',
+        icon: Cpu,
+        isCompleted: analysisStage === 'finalizing' || uploadProgress >= 95,
+        isActive: analysisStage === 'analyzing',
+      },
+      {
+        id: 'parallel_tasks',
+        label: 'Parallel Cutout & Phash Verification',
+        detail: 'Background removal and duplicate check running in parallel',
+        icon: Sparkles,
+        isCompleted: analysisStage === 'finalizing' || uploadProgress >= 95,
+        isActive: analysisStage === 'analyzing' || analysisStage === 'uploading',
+      },
+    ];
+
+    const currentTitle =
+      analysisStage === 'optimizing'
+        ? 'Optimizing Image...'
+        : analysisStage === 'uploading'
+        ? 'Delivering to Cloudinary...'
+        : analysisStage === 'analyzing'
+        ? 'Gemini Diagnostics...'
+        : 'Finalizing Circular Plan...';
+
     return (
-      <div className="py-12 px-4 text-center space-y-6 max-w-sm mx-auto">
-        <div className="relative w-24 h-24 mx-auto">
-          <div className="w-24 h-24 rounded-3xl bg-[#EAF7F0] border-2 border-[#2E9E6B]/30 flex items-center justify-center text-[#2E9E6B] animate-pulse">
-            <Sparkles className="w-12 h-12 animate-spin" />
+      <div className="py-8 px-4 max-w-sm mx-auto space-y-6">
+        {/* Animated Visual Hero */}
+        <div className="relative w-20 h-20 mx-auto">
+          <div className="w-20 h-20 rounded-3xl bg-[#EAF7F0] border-2 border-[#2E9E6B]/30 flex items-center justify-center text-[#2E9E6B] shadow-inner">
+            {analysisStage === 'analyzing' ? (
+              <Sparkles className="w-10 h-10 animate-spin" />
+            ) : analysisStage === 'uploading' ? (
+              <Cloud className="w-10 h-10 animate-bounce" />
+            ) : (
+              <Zap className="w-10 h-10 text-emerald-600 animate-pulse" />
+            )}
           </div>
-          <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-white shadow-md border border-slate-200 flex items-center justify-center text-sky-600">
-            <Cloud className="w-4 h-4" />
+          <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-white shadow-md border border-slate-200 flex items-center justify-center text-emerald-600">
+            <Loader2 className="w-4 h-4 animate-spin" />
           </div>
         </div>
 
-        <div className="space-y-2">
-          <h2 className="text-xl font-bold text-slate-900">
-            {isUploading ? 'Cloudinary Media Processing...' : 'Gemini 3.8 Multimodal Diagnostics...'}
+        {/* Dynamic Title & Subtitle */}
+        <div className="text-center space-y-1.5">
+          <h2 className="text-lg font-extrabold text-slate-900 tracking-tight">
+            {currentTitle}
           </h2>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {isUploading
-              ? 'Applying background removal, optical smart crop, and circular feature tagging.'
-              : 'Synthesizing repair feasibility, embodied carbon savings, and community exchange recommendations.'}
+          <p className="text-xs text-slate-500 leading-relaxed max-w-xs mx-auto">
+            {analysisStageMessage || 'Running streamlined parallel circular analysis pipeline.'}
           </p>
         </div>
 
-        {/* Skeleton cards */}
-        <div className="space-y-3 pt-4 text-left">
-          <div className="h-44 rounded-2xl bg-slate-200/70 animate-pulse" />
-          <div className="h-28 rounded-2xl bg-slate-200/70 animate-pulse" />
-          <div className="h-32 rounded-2xl bg-slate-200/70 animate-pulse" />
+        {/* Progress Bar */}
+        <div className="space-y-1.5 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-[11px] font-semibold">
+            <span className="text-slate-600">Overall Progress</span>
+            <span className="text-emerald-700 font-bold">{uploadProgress}%</span>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-[#2E9E6B] rounded-full transition-all duration-300"
+              style={{ width: `${Math.max(8, uploadProgress)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Clear Multi-Stage Stepper List */}
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3 text-left">
+          <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            Analysis Stages
+          </h4>
+          <div className="space-y-2.5">
+            {stages.map((st, i) => {
+              return (
+                <div key={st.id} className="flex items-start gap-3">
+                  <div className="mt-0.5">
+                    {st.isCompleted ? (
+                      <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      </div>
+                    ) : st.isActive ? (
+                      <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center animate-pulse">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      </div>
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-[10px] font-bold">
+                        {i + 1}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-xs font-bold ${st.isActive ? 'text-emerald-800' : st.isCompleted ? 'text-slate-800' : 'text-slate-400'}`}>
+                        {st.label}
+                      </span>
+                      {st.isActive && (
+                        <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-slate-500 block leading-tight truncate">
+                      {st.detail}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Skeleton Preview */}
+        <div className="space-y-2.5 pt-1 text-left opacity-60">
+          <div className="h-28 rounded-2xl bg-slate-200/80 animate-pulse" />
+          <div className="h-16 rounded-2xl bg-slate-200/80 animate-pulse" />
         </div>
       </div>
     );

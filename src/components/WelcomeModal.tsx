@@ -50,7 +50,7 @@ export const WelcomeModal: React.FC = () => {
             </div>
             <div className="flex items-center gap-2.5 text-xs text-slate-700">
               <Sparkles className="w-4 h-4 text-[#2E9E6B] shrink-0" />
-              <span>Gemini 3.8 Vision diagnostic & savings analysis</span>
+              <span>Gemini Vision diagnostic & savings analysis</span>
             </div>
             <div className="flex items-center gap-2.5 text-xs text-slate-700">
               <HeartHandshake className="w-4 h-4 text-[#2E9E6B] shrink-0" />

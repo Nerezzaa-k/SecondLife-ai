@@ -29,7 +29,7 @@ Live demo: https://secondlife-ai-axwi.onrender.com
 
 - **Frontend:** React 19, TypeScript, Tailwind CSS v4, Lucide React, Recharts (Area charts), Motion (micro-animations).
 - **Backend Server:** Node.js, Express, TypeScript (`tsx`), Helmet (security headers), CORS, Express Rate Limit, Zod (schema validation).
-- **AI Engine:** Google Gemini 3.8 Flash Vision via official `@google/genai` SDK with strict JSON schema constraints.
+- **AI Engine:** Google Gemini Vision via official `@google/genai` SDK with strict JSON schema constraints.
 - **Media Pipeline:** Cloudinary Node SDK & Upload API (server-signed uploads, background removal, smart gravity cropping, perceptual hashing, moderation, auto-tagging, video delivery).
 - **Database & Auth:** Supabase (PostgreSQL with Row Level Security, email auth, Google OAuth, stored procedures).
 
@@ -42,7 +42,7 @@ graph TD
     Client["Browser SPA (React 19 + Vite)"]
     Server["Express API Server (server.ts)"]
     Cloudinary["Cloudinary Media Engine"]
-    Gemini["Google Gemini 3.8 Flash"]
+    Gemini["Google Gemini"]
     SupabaseAuth["Supabase Auth (JWT)"]
     SupabaseDB["PostgreSQL (RLS Enabled)"]
 

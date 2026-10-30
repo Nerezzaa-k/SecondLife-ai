@@ -200,6 +200,9 @@ if (apiKey) {
       },
     },
   });
+  console.log(`[Server Init] Confirmed: GEMINI_API_KEY successfully read from process.env (${apiKey.length} characters).`);
+} else {
+  console.warn('[Server Init] Warning: GEMINI_API_KEY not found in process.env. Photo analysis will use local offline fallback.');
 }
 
 // Initialize Cloudinary Server-Side Config
@@ -529,6 +532,8 @@ function computeHammingDistance(hashA?: string | null, hashB?: string | null): n
 // Phase 5A & 5B: Signed Upload Signature Generation Endpoint
 // Requires authenticated Supabase user. Signs upload parameters server-side with CLOUDINARY_API_SECRET.
 app.post('/api/cloudinary/signature', uploadLimiter, requireAuth, async (req, res) => {
+  const t0 = performance.now();
+  const requestId = (req as any).requestId || 'unknown';
   try {
     const validated = signatureSchema.safeParse(req.body || {});
     if (!validated.success) {
@@ -587,6 +592,8 @@ app.post('/api/cloudinary/signature', uploadLimiter, requireAuth, async (req, re
     }
 
     const signature = cloudinary.utils.api_sign_request(paramsToSign, cloudinaryApiSecret);
+    const elapsed = Math.round(performance.now() - t0);
+    console.log(`[Timing][Req:${requestId}] Cloudinary upload signature generated in ${elapsed}ms`);
 
     return res.json({
       timestamp,
@@ -608,6 +615,8 @@ app.post('/api/cloudinary/signature', uploadLimiter, requireAuth, async (req, re
 
 // Phase 5B: Duplicate Listing Detection using Perceptual Hash (phash) & Hamming Distance
 app.post('/api/cloudinary/check-duplicate', requireAuth, async (req, res) => {
+  const t0 = performance.now();
+  const requestId = (req as any).requestId || 'unknown';
   try {
     const validated = checkDuplicateSchema.safeParse(req.body || {});
     if (!validated.success) {
@@ -622,6 +631,8 @@ app.post('/api/cloudinary/check-duplicate', requireAuth, async (req, res) => {
     const targetPhash = phash.trim().toLowerCase();
 
     if (!supabaseServerClient) {
+      const elapsed = Math.round(performance.now() - t0);
+      console.log(`[Timing][Req:${requestId}] phash duplicate check: ${elapsed}ms (Supabase offline)`);
       return res.json({ isDuplicate: false, message: 'Supabase server client not initialized.' });
     }
 
@@ -644,6 +655,8 @@ app.post('/api/cloudinary/check-duplicate', requireAuth, async (req, res) => {
     }
 
     if (!candidates || candidates.length === 0) {
+      const elapsed = Math.round(performance.now() - t0);
+      console.log(`[Timing][Req:${requestId}] phash duplicate check: ${elapsed}ms (0 candidates evaluated)`);
       return res.json({ isDuplicate: false });
     }
 
@@ -670,6 +683,9 @@ app.post('/api/cloudinary/check-duplicate', requireAuth, async (req, res) => {
       }
     }
 
+    const elapsed = Math.round(performance.now() - t0);
+    console.log(`[Timing][Req:${requestId}] phash duplicate check: ${elapsed}ms (${candidates.length} candidates evaluated, match: ${Boolean(bestMatch)})`);
+
     if (bestMatch) {
       const warningMessage = bestMatch.isOwner
         ? `This looks like a photo you've already listed: "${bestMatch.title}".`
@@ -693,6 +709,8 @@ app.post('/api/cloudinary/check-duplicate', requireAuth, async (req, res) => {
 
 // Server-Side Image Upload & Processing Endpoint (with Moderation & Validation)
 app.post('/api/upload', uploadLimiter, requireAuth, async (req, res) => {
+  const t0 = performance.now();
+  const requestId = (req as any).requestId || 'unknown';
   try {
     const validated = uploadSchema.safeParse(req.body || {});
     if (!validated.success) {
@@ -711,6 +729,7 @@ app.post('/api/upload', uploadLimiter, requireAuth, async (req, res) => {
     const estimatedOriginalBytes = fileSize ? Number(fileSize) : Math.round(cleanBase64.length * 0.75);
     const userId = (req as any).userId;
     const userFolder = userId ? `secondlife/users/${userId}` : 'secondlife_items';
+    const tPrep = Math.round(performance.now() - t0);
 
     if (!isCloudinaryConfigured) {
       // High-fidelity simulated Cloudinary pipeline fallback
@@ -759,6 +778,9 @@ app.post('/api/upload', uploadLimiter, requireAuth, async (req, res) => {
         ],
       };
 
+      const tTotal = Math.round(performance.now() - t0);
+      console.log(`[Timing][Req:${requestId}] Simulated upload pipeline completed in ${tTotal}ms`);
+
       return res.json({
         asset,
         notice: 'Using simulated Cloudinary pipeline. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to your server .env to enable live cloud processing.',
@@ -769,6 +791,7 @@ app.post('/api/upload', uploadLimiter, requireAuth, async (req, res) => {
     let uploadResult: any;
     let moderationStatus: 'approved' | 'rejected' | 'pending' | 'unmoderated' = 'unmoderated';
 
+    const tUploadStart = performance.now();
     try {
       uploadResult = await cloudinary.uploader.upload(cleanBase64, {
         folder: userFolder,
@@ -786,7 +809,9 @@ app.post('/api/upload', uploadLimiter, requireAuth, async (req, res) => {
         phash: true,
       });
     }
+    const tUpload = Math.round(performance.now() - tUploadStart);
 
+    const tModStart = performance.now();
     // Check moderation status from upload response
     if (Array.isArray(uploadResult.moderation) && uploadResult.moderation.length > 0) {
       const firstMod = uploadResult.moderation[0];
@@ -862,6 +887,17 @@ app.post('/api/upload', uploadLimiter, requireAuth, async (req, res) => {
       ],
     };
 
+    const tMod = Math.round(performance.now() - tModStart);
+    const tTotal = Math.round(performance.now() - t0);
+
+    console.log(
+      `[Timing][Req:${requestId}] ─── Server Cloudinary Upload Breakdown ───\n` +
+      `[Timing][Req:${requestId}]   • Payload prep & validation: ${tPrep}ms\n` +
+      `[Timing][Req:${requestId}]   • Cloudinary upload API (upload + moderation + phash): ${tUpload}ms\n` +
+      `[Timing][Req:${requestId}]   • Moderation evaluation & URL construction: ${tMod}ms\n` +
+      `[Timing][Req:${requestId}]   • Total /api/upload: ${tTotal}ms`
+    );
+
     return res.json({ asset });
   } catch (err: any) {
     const safeMsg = err?.message?.replace(/([a-zA-Z0-9_\-]{20,})/g, '[REDACTED]') || 'Image upload failed';
@@ -905,15 +941,107 @@ app.get('/api/cloudinary/measure', async (req, res) => {
   }
 });
 
+// Safe Gemini error formatter: extracts HTTP status, error code, and message without ever logging API keys
+function formatGeminiError(err: any): { status: string | number; code: string | number; message: string; fullError: string } {
+  let status: string | number = err?.status || err?.statusCode || err?.response?.status || 'N/A';
+  let code: string | number = err?.code || 'N/A';
+  let rawMessage: string = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+  let message = rawMessage;
+
+  let rawBody = '';
+  if (err?.response?.data) {
+    try {
+      rawBody = typeof err.response.data === 'string' ? err.response.data : JSON.stringify(err.response.data, null, 2);
+    } catch {}
+  } else if (err?.error) {
+    try {
+      rawBody = JSON.stringify(err.error, null, 2);
+    } catch {}
+  }
+
+  // If the error message wraps Google's JSON error payload, parse status and code if present
+  try {
+    const jsonMatch = rawMessage.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed?.error) {
+        if (parsed.error.code && (status === 'N/A' || !status)) status = parsed.error.code;
+        if (parsed.error.status && (code === 'N/A' || !code)) code = parsed.error.status;
+        if (parsed.error.message) message = parsed.error.message;
+        if (!rawBody) rawBody = JSON.stringify(parsed, null, 2);
+      }
+    }
+  } catch {}
+
+  const fullErrorOutput = rawBody ? `${rawMessage}\n[Response Body]: ${rawBody}` : rawMessage;
+
+  // Strictly redact any API key or secret tokens
+  const currentKey = process.env.GEMINI_API_KEY || '';
+  let sanitizedFull = fullErrorOutput;
+  if (currentKey && currentKey.length > 5) {
+    message = message.split(currentKey).join('[REDACTED_GEMINI_KEY]');
+    sanitizedFull = sanitizedFull.split(currentKey).join('[REDACTED_GEMINI_KEY]');
+  }
+  message = message.replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_GEMINI_KEY]');
+  sanitizedFull = sanitizedFull.replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_GEMINI_KEY]');
+
+  return { status, code, message, fullError: sanitizedFull };
+}
+
+// Generate contextual offline notice based on exact Gemini call error
+function getFallbackNotice(errInfo: { status: string | number; code: string | number; message: string }): string {
+  const statusStr = String(errInfo.status);
+  const codeStr = String(errInfo.code);
+
+  if (statusStr === '429' || codeStr === 'RESOURCE_EXHAUSTED' || errInfo.message.includes('429') || errInfo.message.includes('quota')) {
+    return 'AI daily quota reached for this key. Showing preliminary offline estimate.';
+  }
+
+  if (statusStr === '408' || codeStr === 'ETIMEDOUT' || errInfo.message.includes('timed out')) {
+    return 'Live AI analysis timed out. Showing preliminary offline estimate.';
+  }
+
+  if (errInfo.status && errInfo.status !== 'N/A') {
+    return `AI unavailable (HTTP ${errInfo.status}). Showing preliminary offline estimate.`;
+  }
+
+  return 'AI unavailable. Showing preliminary offline estimate.';
+}
+
+// Helper: Call asynchronous task with timeout
+function callWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const err: any = new Error(`${label} timed out after ${timeoutMs}ms`);
+      err.code = 'ETIMEDOUT';
+      err.status = 408;
+      reject(err);
+    }, timeoutMs);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 // Gemini Vision Item Analysis Endpoint (Rate-limited, Authenticated, Zod-validated)
 app.post('/api/analyze', strictAiLimiter, requireAuth, async (req, res) => {
+  const t0 = performance.now();
+  const requestId = (req as any).requestId || 'unknown';
+
   try {
     const validated = analyzeSchema.safeParse(req.body || {});
     if (!validated.success) {
       return res.status(400).json({
         error: 'Invalid analysis payload: ' + validated.error.issues.map((e) => e.message).join(', '),
         code: 'VALIDATION_ERROR',
-        requestId: (req as any).requestId,
+        requestId,
       });
     }
 
@@ -921,12 +1049,61 @@ app.post('/api/analyze', strictAiLimiter, requireAuth, async (req, res) => {
 
     if (!ai) {
       const fallback = generateFallbackAnalysis('Item', description, tags);
+      const elapsed = Math.round(performance.now() - t0);
+      console.log(`[Timing][Req:${requestId}] Local diagnostic engine (offline/demo mode): ${elapsed}ms`);
       return res.json({
         data: fallback,
         source: 'local_engine',
         notice: 'Analyzed with circular-economy diagnostic rules (Demo mode).',
       });
     }
+
+    // Step 1: Deliver & prepare lightweight image for Gemini (Cloudinary small version preferred)
+    const tImgStart = performance.now();
+    let imagePart: any = null;
+    let imageSourceDesc = '';
+
+    // Prioritize small Cloudinary-delivered version (e.g. w_1024,c_limit,q_auto,f_auto)
+    if (imageUrl) {
+      try {
+        console.log(`[Timing][Req:${requestId}] Fetching small Cloudinary-delivered image for Gemini: ${imageUrl}`);
+        const imgFetchStart = performance.now();
+        const imgRes = await callWithTimeout(fetch(imageUrl), 6000, 'Cloudinary small image fetch');
+        if (imgRes.ok) {
+          const arrayBuf = await imgRes.arrayBuffer();
+          const fetchedBase64 = Buffer.from(arrayBuf).toString('base64');
+          const rawMime = imgRes.headers.get('content-type') || mimeType || 'image/jpeg';
+          const cleanMime = rawMime.split(';')[0].trim();
+          imagePart = {
+            inlineData: {
+              data: fetchedBase64,
+              mimeType: cleanMime,
+            },
+          };
+          const fetchMs = Math.round(performance.now() - imgFetchStart);
+          imageSourceDesc = `Cloudinary small delivered image (${(arrayBuf.byteLength / 1024).toFixed(1)} KB in ${fetchMs}ms)`;
+        } else {
+          console.warn(`[Timing][Req:${requestId}] Cloudinary image fetch returned status ${imgRes.status}, falling back to base64`);
+        }
+      } catch (fetchErr: any) {
+        console.warn(`[Timing][Req:${requestId}] Could not fetch small Cloudinary image (${fetchErr?.message}), using base64 fallback`);
+      }
+    }
+
+    // Fallback to client-compressed imageBase64 if Cloudinary small image fetch unavailable
+    if (!imagePart && imageBase64) {
+      const cleanBase64 = imageBase64.replace(/^data:[a-z/]+;base64,/, '');
+      imagePart = {
+        inlineData: {
+          data: cleanBase64,
+          mimeType: mimeType || 'image/jpeg',
+        },
+      };
+      imageSourceDesc = `Client-compressed imageBase64 (${(cleanBase64.length * 0.75 / 1024).toFixed(1)} KB)`;
+    }
+
+    const tImgPrep = Math.round(performance.now() - tImgStart);
+    console.log(`[Timing][Req:${requestId}] Image delivery & preparation: ${tImgPrep}ms [Source: ${imageSourceDesc}]`);
 
     const promptText = `
 You are SecondLife AI, an expert circular economy and item diagnostics specialist.
@@ -950,6 +1127,7 @@ CRITICAL DIAGNOSTIC RULES:
    - The user's description explicitly states a specific problem or malfunction (e.g. "motor doesn't turn", "cracked case", "won't power on").
    - Your confidence score must honestly reflect the strength of evidence (e.g., 55-65% if guessing/uncertain from minimal visual cues, 80-95% only if clear damage or explicit user description is present).
 3. Recommended action must be one of: "maintain" | "repair" | "borrow" | "donate" | "repurpose" | "replace".
+4. COMPACT & FAST OUTPUT: Keep all descriptions, tips, and reasoning concise (1-2 sentences max), lists to 2-3 items, and avoid verbose filler so the JSON response remains compact and fast.
 
 Return ONLY a valid JSON object matching this schema:
 {
@@ -976,122 +1154,255 @@ Return ONLY a valid JSON object matching this schema:
 }
 `;
 
-    const contents: any[] = [];
-
-    if (imageBase64) {
-      const cleanBase64 = imageBase64.replace(/^data:[a-z/]+;base64,/, '');
-      contents.push({
+    const contents = [
+      {
         parts: [
-          {
-            inlineData: {
-              data: cleanBase64,
-              mimeType: mimeType || 'image/jpeg',
-            },
-          },
+          ...(imagePart ? [imagePart] : []),
           { text: promptText },
         ],
-      });
-    } else {
-      contents.push({
-        parts: [
-          { text: `Image URL: ${imageUrl}\n\n${promptText}` },
+      },
+    ];
+
+    // Step 2: Execute Gemini call without timeout and with 1 retry only for real network errors
+    const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+    let response: any = null;
+    let geminiAttempts = 0;
+    let attempt1Duration = 0;
+    let attempt2Duration = 0;
+
+    const geminiConfig = {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 2048,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          item_name: { type: Type.STRING },
+          category: { type: Type.STRING },
+          condition: { type: Type.STRING, enum: ['good', 'fair', 'damaged'] },
+          likely_issue: { type: Type.STRING },
+          possible_causes: { type: Type.ARRAY, items: { type: Type.STRING } },
+          troubleshooting_tips: { type: Type.ARRAY, items: { type: Type.STRING } },
+          recommended_action: {
+            type: Type.STRING,
+            enum: ['maintain', 'repair', 'borrow', 'donate', 'repurpose', 'replace'],
+          },
+          reasoning: { type: Type.STRING },
+          confidence: { type: Type.INTEGER },
+          repair_cost_inr: {
+            type: Type.OBJECT,
+            properties: {
+              min: { type: Type.INTEGER },
+              max: { type: Type.INTEGER },
+            },
+            required: ['min', 'max'],
+          },
+          replace_cost_inr: {
+            type: Type.OBJECT,
+            properties: {
+              min: { type: Type.INTEGER },
+              max: { type: Type.INTEGER },
+            },
+            required: ['min', 'max'],
+          },
+          reuse_ideas: { type: Type.ARRAY, items: { type: Type.STRING } },
+          estimated_waste_saved_kg: { type: Type.NUMBER },
+          estimated_co2_saved_kg: { type: Type.NUMBER },
+          photo_quality: {
+            type: Type.OBJECT,
+            properties: {
+              score: { type: Type.INTEGER },
+              issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+              tip: { type: Type.STRING },
+            },
+            required: ['score', 'issues', 'tip'],
+          },
+          safety_note: { type: Type.STRING },
+        },
+        required: [
+          'item_name',
+          'category',
+          'condition',
+          'likely_issue',
+          'possible_causes',
+          'troubleshooting_tips',
+          'recommended_action',
+          'reasoning',
+          'confidence',
+          'repair_cost_inr',
+          'replace_cost_inr',
+          'reuse_ideas',
+          'estimated_waste_saved_kg',
+          'estimated_co2_saved_kg',
+          'photo_quality',
+          'safety_note',
         ],
+      },
+    };
+
+    const configOptionNames = Object.keys(geminiConfig).join(', ');
+
+    const executeGemini = () =>
+      ai!.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: contents[0],
+        config: geminiConfig,
       });
+
+    // Attempt 1
+    geminiAttempts = 1;
+    const imageSizeKb = imagePart?.inlineData?.data
+      ? (Buffer.byteLength(imagePart.inlineData.data, 'base64') / 1024).toFixed(1)
+      : '0.0';
+
+    const tGeminiStart1 = performance.now();
+    try {
+      console.log(`[Timing][Req:${requestId}] Calling Gemini Vision API (Attempt 1/2, Model: ${GEMINI_MODEL}, Config: [${configOptionNames}], Image Size: ${imageSizeKb} KB)...`);
+      response = await executeGemini();
+      attempt1Duration = Math.round(performance.now() - tGeminiStart1);
+      const first200Chars = (response?.text || '').slice(0, 200).replace(/\r?\n/g, ' ');
+      console.log(
+        `[Gemini Call Succeeded][Req:${requestId}]\n` +
+        `  • Model:        ${GEMINI_MODEL}\n` +
+        `  • Config:       [${configOptionNames}]\n` +
+        `  • Image Size:   ${imageSizeKb} KB\n` +
+        `  • Elapsed:      ${attempt1Duration}ms (${(attempt1Duration / 1000).toFixed(2)}s)\n` +
+        `  • Snippet:      "${first200Chars}"`
+      );
+    } catch (err1: any) {
+      attempt1Duration = Math.round(performance.now() - tGeminiStart1);
+      const errInfo1 = formatGeminiError(err1);
+      console.warn(
+        `[Gemini Call Failed (Attempt 1/2)][Req:${requestId}]\n` +
+        `  • Model Name:          ${GEMINI_MODEL}\n` +
+        `  • Config Options Sent: ${configOptionNames}\n` +
+        `  • Image Size:          ${imageSizeKb} KB\n` +
+        `  • Elapsed:             ${attempt1Duration}ms (${(attempt1Duration / 1000).toFixed(2)}s)\n` +
+        `  • error.status:        ${err1?.status ?? errInfo1.status}\n` +
+        `  • error.message:       ${err1?.message ?? errInfo1.message}\n` +
+        `  • Error Code:          ${errInfo1.code}\n` +
+        `  • Full Response Body:  ${errInfo1.fullError}`
+      );
+
+      // If HTTP 429 quota error, do NOT retry. Return immediately to fall back.
+      const is429 = String(errInfo1.status) === '429' || String(errInfo1.code) === 'RESOURCE_EXHAUSTED' || errInfo1.message.includes('429');
+      if (is429) {
+        console.warn(`[Timing][Req:${requestId}] HTTP 429 quota reached. Skipping retry and returning immediately.`);
+        throw err1;
+      }
+
+      // Keep retry only for real network errors (DNS, reset, socket closed, etc.)
+      const isNetworkError =
+        ['ECONNRESET', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'].includes(String(errInfo1.code)) ||
+        ['ECONNRESET', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'].includes(String(err1?.code)) ||
+        ['ECONNRESET', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'].includes(String(err1?.cause?.code)) ||
+        err1?.name === 'FetchError' ||
+        errInfo1.message.toLowerCase().includes('fetch failed') ||
+        errInfo1.message.toLowerCase().includes('network') ||
+        errInfo1.message.toLowerCase().includes('econnreset') ||
+        errInfo1.message.toLowerCase().includes('enotfound') ||
+        errInfo1.message.toLowerCase().includes('eai_again');
+
+      if (!isNetworkError) {
+        console.warn(`[Timing][Req:${requestId}] Non-network error encountered (Status: ${errInfo1.status}, Code: ${errInfo1.code}). Skipping retry.`);
+        throw err1;
+      }
+
+      console.warn(`[Timing][Req:${requestId}] Network error encountered. Retrying once (Attempt 2/2)...`);
+
+      // Attempt 2 (Retry on real network error only)
+      geminiAttempts = 2;
+      const tGeminiStart2 = performance.now();
+      try {
+        response = await executeGemini();
+        attempt2Duration = Math.round(performance.now() - tGeminiStart2);
+        const first200CharsRetry = (response?.text || '').slice(0, 200).replace(/\r?\n/g, ' ');
+        console.log(
+          `[Gemini Call Succeeded (Retry)][Req:${requestId}]\n` +
+          `  • Model:        ${GEMINI_MODEL}\n` +
+          `  • Config:       [${configOptionNames}]\n` +
+          `  • Image Size:   ${imageSizeKb} KB\n` +
+          `  • Elapsed:      ${attempt2Duration}ms (${(attempt2Duration / 1000).toFixed(2)}s)\n` +
+          `  • Snippet:      "${first200CharsRetry}"`
+        );
+      } catch (err2: any) {
+        attempt2Duration = Math.round(performance.now() - tGeminiStart2);
+        const errInfo2 = formatGeminiError(err2);
+        console.error(
+          `[Gemini Call Failed (Attempt 2/2)][Req:${requestId}]\n` +
+          `  • Model Name:          ${GEMINI_MODEL}\n` +
+          `  • Config Options Sent: ${configOptionNames}\n` +
+          `  • Image Size:          ${imageSizeKb} KB\n` +
+          `  • Elapsed:             ${attempt2Duration}ms (${(attempt2Duration / 1000).toFixed(2)}s)\n` +
+          `  • error.status:        ${err2?.status ?? errInfo2.status}\n` +
+          `  • error.message:       ${err2?.message ?? errInfo2.message}\n` +
+          `  • Error Code:          ${errInfo2.code}\n` +
+          `  • Full Response Body:  ${errInfo2.fullError}\n` +
+          `  • Network retry failed.`
+        );
+        throw err2;
+      }
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: contents[0],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            item_name: { type: Type.STRING },
-            category: { type: Type.STRING },
-            condition: { type: Type.STRING, enum: ['good', 'fair', 'damaged'] },
-            likely_issue: { type: Type.STRING },
-            possible_causes: { type: Type.ARRAY, items: { type: Type.STRING } },
-            troubleshooting_tips: { type: Type.ARRAY, items: { type: Type.STRING } },
-            recommended_action: {
-              type: Type.STRING,
-              enum: ['maintain', 'repair', 'borrow', 'donate', 'repurpose', 'replace'],
-            },
-            reasoning: { type: Type.STRING },
-            confidence: { type: Type.INTEGER },
-            repair_cost_inr: {
-              type: Type.OBJECT,
-              properties: {
-                min: { type: Type.INTEGER },
-                max: { type: Type.INTEGER },
-              },
-              required: ['min', 'max'],
-            },
-            replace_cost_inr: {
-              type: Type.OBJECT,
-              properties: {
-                min: { type: Type.INTEGER },
-                max: { type: Type.INTEGER },
-              },
-              required: ['min', 'max'],
-            },
-            reuse_ideas: { type: Type.ARRAY, items: { type: Type.STRING } },
-            estimated_waste_saved_kg: { type: Type.NUMBER },
-            estimated_co2_saved_kg: { type: Type.NUMBER },
-            photo_quality: {
-              type: Type.OBJECT,
-              properties: {
-                score: { type: Type.INTEGER },
-                issues: { type: Type.ARRAY, items: { type: Type.STRING } },
-                tip: { type: Type.STRING },
-              },
-              required: ['score', 'issues', 'tip'],
-            },
-            safety_note: { type: Type.STRING },
-          },
-          required: [
-            'item_name',
-            'category',
-            'condition',
-            'likely_issue',
-            'possible_causes',
-            'troubleshooting_tips',
-            'recommended_action',
-            'reasoning',
-            'confidence',
-            'repair_cost_inr',
-            'replace_cost_inr',
-            'reuse_ideas',
-            'estimated_waste_saved_kg',
-            'estimated_co2_saved_kg',
-            'photo_quality',
-            'safety_note',
-          ],
-        },
-      },
-    });
-
+    // Step 3: Parse & sanitize structured JSON response
+    const tParseStart = performance.now();
     const responseText = response.text || '{}';
     const cleanJson = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsedData = JSON.parse(cleanJson);
+    const tParse = Math.round(performance.now() - tParseStart);
+
+    const totalAnalyzeMs = Math.round(performance.now() - t0);
+    const totalGeminiMs = attempt1Duration + attempt2Duration;
+
+    // Comprehensive timing summary printout
+    console.log(
+      `\n[Timing Summary][Req:${requestId}] ════════ Photo Analysis Performance ════════\n` +
+      `[Timing Summary][Req:${requestId}]   • Image Delivery & Prep: ${tImgPrep}ms [${imageSourceDesc}]\n` +
+      `[Timing Summary][Req:${requestId}]   • Gemini API Duration:   ${totalGeminiMs}ms [${geminiAttempts} attempt(s), Model: ${GEMINI_MODEL}]\n` +
+      `[Timing Summary][Req:${requestId}]   • Response JSON Parse:   ${tParse}ms\n` +
+      `[Timing Summary][Req:${requestId}]   • Total /api/analyze:    ${totalAnalyzeMs}ms\n` +
+      `[Timing Summary][Req:${requestId}] ══════════════════════════════════════════════\n`
+    );
 
     return res.json({
       data: { ...parsedData, isFallback: false },
-      source: 'gemini-3.8-flash',
+      source: GEMINI_MODEL,
+      timing: {
+        totalMs: totalAnalyzeMs,
+        imagePrepMs: tImgPrep,
+        geminiMs: totalGeminiMs,
+        attempts: geminiAttempts,
+      },
     });
   } catch (error: any) {
-    const safeErrorMsg = error?.message?.replace(/([a-zA-Z0-9_\-]{20,})/g, '[REDACTED]') || 'Gemini error';
-    console.error(`[Server Error][Req:${(req as any).requestId}] Gemini analysis fallback:`, safeErrorMsg);
+    const totalFallbackMs = Math.round(performance.now() - t0);
+    const errInfo = formatGeminiError(error);
+    const currentModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+    console.error(
+      `[Server Error][Req:${requestId}] Gemini analysis failed after ${totalFallbackMs}ms (Falling back to offline estimate):\n` +
+      `  • Model Name:          ${currentModel}\n` +
+      `  • Config Options Sent: responseMimeType, maxOutputTokens, responseSchema\n` +
+      `  • error.status:        ${error?.status ?? errInfo.status}\n` +
+      `  • error.message:       ${error?.message ?? errInfo.message}\n` +
+      `  • Error Code:          ${errInfo.code}\n` +
+      `  • Full Response Body:  ${errInfo.fullError}`
+    );
+
+    const fallbackNotice = getFallbackNotice(errInfo);
 
     const fallback = generateFallbackAnalysis(
       req.body?.description || 'Item',
       req.body?.description || '',
       req.body?.tags || []
     );
+
     return res.json({
       data: { ...fallback, isFallback: true },
       source: 'local_engine_fallback',
-      notice: 'Gemini service encountered high traffic. Provided diagnostic circular model estimate.',
+      notice: fallbackNotice,
+      timing: {
+        totalMs: totalFallbackMs,
+        isFallback: true,
+      },
     });
   }
 });

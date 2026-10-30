@@ -13,7 +13,7 @@ graph TD
     Client["React + Vite Client (Browser SPA)"]
     Server["Express.js API Server (Node / TypeScript)"]
     Cloudinary["Cloudinary Media Processing Engine"]
-    Gemini["Google Gemini 3.8 Flash Multimodal API"]
+    Gemini["Google Gemini Multimodal API"]
     SupabaseAuth["Supabase Authentication (OAuth / JWT)"]
     SupabaseDB["Supabase PostgreSQL with RLS"]
 
@@ -58,10 +58,10 @@ Cloudinary processes the uploaded asset on ingestion:
    - Branded Impact Badge: Text overlays composited dynamically.
    - Low-Quality Image Placeholder (LQIP): Micro blurred preview (`w_30,e_blur:1000,q_auto:eco`).
 
-### Step 4: Server-Side Gemini 3.8 Multimodal Analysis
+### Step 4: Server-Side Gemini Multimodal Analysis
 - The client sends the Cloudinary media URL, user description, and detected tags to `POST /api/analyze`.
 - The Express server enforces rate limiting (30 req / 15m) and validates the body schema using **Zod**.
-- The server constructs an expert circular-economy prompt and invokes **Gemini 3.8 Flash** with a strict JSON schema:
+- The server constructs an expert circular-economy prompt and invokes **Gemini** with a strict JSON schema:
   - **Honest Diagnosis:** If no defect is described and the photo shows an intact item, Gemini explicitly returns `likely_issue: "No fault detected"`, `condition: "good"`, and `recommended_action: "maintain"` with preventative maintenance tips.
   - **Evidence-Based Confidence:** Confidence reflects observable damage (50-99%).
   - **Impact Estimates:** Item-specific `estimated_waste_saved_kg`, `estimated_co2_saved_kg`, and repair vs replacement cost ranges in INR.

@@ -26,7 +26,7 @@ export const Footer: React.FC = () => {
 
         <span className="inline-flex items-center gap-1 text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
           <Sparkles className="w-3 h-3 text-[#2E9E6B]" />
-          Gemini 3.8 Multimodal
+          Gemini Multimodal
         </span>
       </div>
 
