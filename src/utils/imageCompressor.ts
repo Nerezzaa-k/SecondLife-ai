@@ -34,7 +34,7 @@ export function blobToBase64(blob: Blob | File): Promise<string> {
  */
 export async function compressAndResizeImage(
   input: File | Blob,
-  maxLongSide = 1600,
+  maxLongSide = 1280,
   quality = 0.85
 ): Promise<CompressionResult> {
   const t0 = performance.now();

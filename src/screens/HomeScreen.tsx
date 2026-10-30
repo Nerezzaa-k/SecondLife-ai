@@ -9,6 +9,10 @@ import {
   TrendingUp,
   ShieldCheck,
   RefreshCw,
+  X,
+  Plus,
+  Image as ImageIcon,
+  Trash2,
 } from 'lucide-react';
 
 export const HomeScreen: React.FC = () => {
@@ -28,9 +32,16 @@ export const HomeScreen: React.FC = () => {
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const closeupInputRef = useRef<HTMLInputElement>(null);
   const needFileInputRef = useRef<HTMLInputElement>(null);
   const needCameraInputRef = useRef<HTMLInputElement>(null);
   const [isMatchingWithPhoto, setIsMatchingWithPhoto] = useState(false);
+
+  // Staged photos for preview before analysis
+  const [mainPhoto, setMainPhoto] = useState<File | null>(null);
+  const [mainPreviewUrl, setMainPreviewUrl] = useState<string | null>(null);
+  const [closeupPhotos, setCloseupPhotos] = useState<File[]>([]);
+  const [closeupPreviewUrls, setCloseupPreviewUrls] = useState<string[]>([]);
 
   const handleNeedPhoto = async (file: File) => {
     setIsMatchingWithPhoto(true);
@@ -41,12 +52,50 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
-  const handleFile = (file: File) => {
+  const handleMainFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Please upload an image file (PNG, JPG, WEBP).');
       return;
     }
-    analyzePhoto(file, problemDescription);
+    if (mainPreviewUrl) {
+      URL.revokeObjectURL(mainPreviewUrl);
+    }
+    setMainPhoto(file);
+    setMainPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleCloseupFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file (PNG, JPG, WEBP).');
+      return;
+    }
+    if (closeupPhotos.length >= 2) {
+      alert('You can upload up to 2 additional close-up photos.');
+      return;
+    }
+    setCloseupPhotos((prev) => [...prev, file]);
+    setCloseupPreviewUrls((prev) => [...prev, URL.createObjectURL(file)]);
+  };
+
+  const removeCloseup = (index: number) => {
+    const url = closeupPreviewUrls[index];
+    if (url) URL.revokeObjectURL(url);
+    setCloseupPhotos((prev) => prev.filter((_, i) => i !== index));
+    setCloseupPreviewUrls((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const clearMainPhoto = () => {
+    if (mainPreviewUrl) URL.revokeObjectURL(mainPreviewUrl);
+    closeupPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    setMainPhoto(null);
+    setMainPreviewUrl(null);
+    setCloseupPhotos([]);
+    setCloseupPreviewUrls([]);
+  };
+
+  const handleAnalyzeClick = () => {
+    if (!mainPhoto) return;
+    analyzePhoto(mainPhoto, problemDescription, closeupPhotos);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -54,7 +103,7 @@ export const HomeScreen: React.FC = () => {
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0]);
+      handleMainFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -131,40 +180,41 @@ export const HomeScreen: React.FC = () => {
       {/* MODE 1: I HAVE AN ITEM */}
       {mode === 'have' && (
         <section className="space-y-4">
-          {/* Main Upload Box */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`relative rounded-3xl border-2 border-dashed transition-all p-6 text-center ${
-              dragActive
-                ? 'border-[#2E9E6B] bg-[#EAF7F0]/60 scale-[1.01]'
-                : 'border-slate-300 hover:border-[#2E9E6B]/60 bg-white/80'
-            } shadow-sm`}
-          >
-            {isUploading ? (
-              <div className="py-8 space-y-4">
-                <div className="w-16 h-16 rounded-full bg-[#EAF7F0] text-[#2E9E6B] flex items-center justify-center mx-auto animate-spin">
-                  <RefreshCw className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Processing Image...
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Optimizing framing and removing background with Cloudinary
-                  </p>
-                </div>
-                {uploadProgress > 0 && (
-                  <div className="w-48 bg-slate-200 rounded-full h-1.5 mx-auto overflow-hidden">
-                    <div
-                      className="bg-[#2E9E6B] h-1.5 transition-all duration-300 rounded-full"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                )}
+          {/* Main Upload Box or Photo Preview */}
+          {isUploading ? (
+            <div className="rounded-3xl border-2 border-dashed border-[#2E9E6B] bg-[#EAF7F0]/40 p-8 text-center shadow-sm space-y-4">
+              <div className="w-16 h-16 rounded-full bg-[#EAF7F0] text-[#2E9E6B] flex items-center justify-center mx-auto animate-spin">
+                <RefreshCw className="w-8 h-8" />
               </div>
-            ) : (
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Processing Image & Multimodal Analysis...
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Gemini multimodal inspection & Cloudinary media optimization
+                </p>
+              </div>
+              {uploadProgress > 0 && (
+                <div className="w-48 bg-slate-200 rounded-full h-1.5 mx-auto overflow-hidden">
+                  <div
+                    className="bg-[#2E9E6B] h-1.5 transition-all duration-300 rounded-full"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          ) : !mainPhoto ? (
+            /* Dropzone when no file has been chosen yet */
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative rounded-3xl border-2 border-dashed transition-all p-6 text-center ${
+                dragActive
+                  ? 'border-[#2E9E6B] bg-[#EAF7F0]/60 scale-[1.01]'
+                  : 'border-slate-300 hover:border-[#2E9E6B]/60 bg-white/80'
+              } shadow-sm`}
+            >
               <div className="space-y-4">
                 <div className="w-16 h-16 rounded-3xl bg-[#EAF7F0] text-[#2E9E6B] flex items-center justify-center mx-auto shadow-sm">
                   <Upload className="w-8 h-8" />
@@ -181,7 +231,6 @@ export const HomeScreen: React.FC = () => {
 
                 {/* Upload & Camera Buttons */}
                 <div className="flex flex-col sm:flex-row gap-2 justify-center max-w-xs mx-auto pt-1">
-                  {/* Camera capture button (mobile-first) */}
                   <button
                     onClick={() => cameraInputRef.current?.click()}
                     className="flex-1 py-2.5 px-4 rounded-xl bg-[#2E9E6B] hover:bg-[#237E55] text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-md shadow-[#2E9E6B]/20 transition-all active:scale-98"
@@ -190,7 +239,6 @@ export const HomeScreen: React.FC = () => {
                     <span>Take Photo</span>
                   </button>
 
-                  {/* File chooser button */}
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="flex-1 py-2.5 px-4 rounded-xl bg-white border border-[#E8E6DF] hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center justify-center gap-2 shadow-xs transition-colors"
@@ -209,7 +257,7 @@ export const HomeScreen: React.FC = () => {
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
-                      handleFile(e.target.files[0]);
+                      handleMainFile(e.target.files[0]);
                     }
                   }}
                 />
@@ -220,30 +268,133 @@ export const HomeScreen: React.FC = () => {
                   className="hidden"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
-                      handleFile(e.target.files[0]);
+                      handleMainFile(e.target.files[0]);
                     }
                   }}
                 />
               </div>
-            )}
-          </div>
-
-          {/* Optional Problem Description input */}
-          <div className="bg-white rounded-2xl p-3.5 border border-[#E8E6DF] shadow-xs space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700">
-                What seems wrong? <span className="text-slate-400 font-normal">(Optional context)</span>
-              </label>
-              <span className="text-[10px] text-slate-400">Helps AI diagnosis</span>
             </div>
-            <input
-              type="text"
-              value={problemDescription}
-              onChange={(e) => setProblemDescription(e.target.value)}
-              placeholder="e.g. Lever won't latch down, motor hums, wobbly leg, battery dead"
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2E9E6B]"
-            />
-          </div>
+          ) : (
+            /* Staged Photo Preview with controls before triggering analysis */
+            <div className="bg-white rounded-3xl p-5 border border-[#E8E6DF] shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#2E9E6B] animate-pulse" />
+                  <span className="text-xs font-bold text-slate-900">
+                    Photo Ready for AI Inspection
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearMainPhoto}
+                  className="text-xs text-rose-600 hover:text-rose-700 font-semibold inline-flex items-center gap-1 p-1 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="Remove photo"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Remove</span>
+                </button>
+              </div>
+
+              {/* Main Photo Preview */}
+              <div className="relative rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/80 max-h-64 flex items-center justify-center">
+                <img
+                  src={mainPreviewUrl!}
+                  alt="Item to analyze"
+                  className="w-full h-56 object-contain"
+                />
+                <span className="absolute bottom-2 left-2 text-[10px] font-bold bg-black/70 text-white px-2 py-0.5 rounded-md backdrop-blur-xs">
+                  Primary Item Photo
+                </span>
+              </div>
+
+              {/* Optional Problem Description */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800">
+                    Describe the problem <span className="text-slate-400 font-normal">(Optional context)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">Helps AI diagnosis</span>
+                </div>
+                <input
+                  type="text"
+                  value={problemDescription}
+                  onChange={(e) => setProblemDescription(e.target.value)}
+                  placeholder="e.g. Broken hinge, won't turn on, wobbly leg, smells like burning, water leaking..."
+                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2E9E6B] bg-slate-50/50"
+                />
+              </div>
+
+              {/* Optional Close-up Photos */}
+              <div className="space-y-2 pt-1 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 block">
+                      Close-up of damaged part <span className="text-slate-400 font-normal">(Optional, up to 2)</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Show specific cracks, burnt areas, or model stickers
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    {closeupPhotos.length}/2
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  {closeupPreviewUrls.map((url, index) => (
+                    <div key={index} className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 group">
+                      <img src={url} alt={`Close-up ${index + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeCloseup(index)}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center transition-colors shadow-xs"
+                        title="Remove close-up"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {closeupPhotos.length < 2 && (
+                    <button
+                      type="button"
+                      onClick={() => closeupInputRef.current?.click()}
+                      className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 hover:border-[#2E9E6B] hover:bg-[#EAF7F0]/40 flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-[#2E9E6B] transition-all"
+                    >
+                      <Plus className="w-5 h-5" />
+                      <span className="text-[10px] font-semibold">Add close-up</span>
+                    </button>
+                  )}
+                </div>
+
+                <input
+                  ref={closeupInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleCloseupFile(e.target.files[0]);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Big Action Button */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleAnalyzeClick}
+                  disabled={isUploading}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-[#2E9E6B] hover:bg-[#237E55] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#2E9E6B]/25 transition-all active:scale-[0.99] disabled:opacity-50"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Analyze Item with AI</span>
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
 

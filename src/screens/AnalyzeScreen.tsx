@@ -25,11 +25,14 @@ import {
   Loader2,
   Zap,
   Cpu,
+  Eye,
+  HelpCircle,
 } from 'lucide-react';
 import { BeforeAfterSlider } from '../components/BeforeAfterSlider';
 import { CostComparisonChart } from '../components/CostComparisonChart';
 import { ListForSharingModal } from '../components/ListForSharingModal';
 import { MarkRepairedModal } from '../components/MarkRepairedModal';
+import { DamageChecklist } from '../types';
 
 export const AnalyzeScreen: React.FC = () => {
   const {
@@ -504,12 +507,153 @@ export const AnalyzeScreen: React.FC = () => {
         </div>
       </div>
 
+      {/* 3b. "What the AI saw" Ground-Truth Visual Observations */}
+      {(() => {
+        const checklist: Partial<DamageChecklist> = currentAnalysis.damage_checklist || {};
+        const detectedChecklistLabels: string[] = [];
+        if (checklist.casing_open_or_missing) detectedChecklistLabels.push('Casing open or missing');
+        if (checklist.internal_parts_exposed) detectedChecklistLabels.push('Internal parts / PCB exposed');
+        if (checklist.cracks_or_breaks) detectedChecklistLabels.push('Cracks or structural breaks');
+        if (checklist.dents_or_deformation) detectedChecklistLabels.push('Dents or physical deformation');
+        if (checklist.burn_or_corrosion) detectedChecklistLabels.push('Burn marks or corrosion');
+        if (checklist.missing_parts) detectedChecklistLabels.push('Missing parts or fasteners');
+        if (checklist.loose_or_hanging_parts) detectedChecklistLabels.push('Loose or hanging components');
+        if (checklist.heavy_wear_or_dirt) detectedChecklistLabels.push('Heavy surface wear or grime');
+
+        const anyChecklistTrue = detectedChecklistLabels.length > 0;
+        const isTrulyIntact =
+          !currentAnalysis.isFallback &&
+          (currentAnalysis.item_state === 'intact' || !currentAnalysis.item_state) &&
+          !anyChecklistTrue &&
+          !currentAnalysis.damage_visible;
+
+        return (
+          <div className="bg-white rounded-3xl p-5 border border-[#E8E6DF] shadow-xs space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-xs">
+                  <Eye className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    What the AI saw
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Ground-truth physical damage checklist & observations
+                  </p>
+                </div>
+              </div>
+
+              {currentAnalysis.isFallback || currentAsset?.isDemoFallback ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                  Offline Estimate
+                </span>
+              ) : isTrulyIntact ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-[#2E9E6B]" />
+                  Intact
+                </span>
+              ) : currentAnalysis.item_state === 'opened_or_disassembled' ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-rose-600" />
+                  Opened / Disassembled
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-rose-600" />
+                  Damage Visible
+                </span>
+              )}
+            </div>
+
+            {/* Checklist Findings Banner when damage or open casing is detected */}
+            {detectedChecklistLabels.length > 0 && (
+              <div className="p-3 rounded-2xl bg-rose-50/80 border border-rose-200/90 space-y-1.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-rose-900 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                  Physical Damage Checklist Triggered:
+                </span>
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {detectedChecklistLabels.map((lbl, i) => (
+                    <span
+                      key={i}
+                      className="text-[11px] font-semibold bg-white border border-rose-200 text-rose-800 px-2.5 py-0.5 rounded-lg shadow-2xs"
+                    >
+                      {lbl}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Visual observations bullet points */}
+            {currentAnalysis.visible_observations && currentAnalysis.visible_observations.length > 0 ? (
+              <div className="space-y-1.5 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                  Observed Features & Physical Condition:
+                </span>
+                <ul className="space-y-1.5">
+                  {currentAnalysis.visible_observations.map((obs, idx) => (
+                    <li key={idx} className="text-xs text-slate-700 flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#2E9E6B] mt-1.5 shrink-0" />
+                      <span className="leading-snug">{obs}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* Damage location if visible */}
+            {currentAnalysis.damage_visible && currentAnalysis.damage_location && currentAnalysis.damage_location.toLowerCase() !== 'none' && (
+              <div className="flex items-center gap-2 text-xs bg-amber-50/80 border border-amber-200/70 p-2.5 rounded-xl text-amber-950">
+                <span className="font-bold text-amber-900 shrink-0">Defect Location:</span>
+                <span className="capitalize">{currentAnalysis.damage_location}</span>
+              </div>
+            )}
+
+            {/* Follow-up question / What to check next */}
+            {currentAnalysis.what_to_check_next && (
+              <div className="bg-[#EAF7F0]/60 border border-[#2E9E6B]/30 rounded-2xl p-3 flex items-start gap-2.5 text-xs text-slate-800">
+                <HelpCircle className="w-4 h-4 text-[#2E9E6B] shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold text-slate-900 block">What to check next:</span>
+                  <p className="text-slate-600 leading-relaxed">{currentAnalysis.what_to_check_next}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* 4. Fault Diagnosis & Maintenance Section */}
       <div className="bg-white rounded-3xl p-5 border border-[#E8E6DF] shadow-xs space-y-4">
         {(() => {
-          const isNoFault = currentAnalysis.likely_issue.toLowerCase().includes('no fault') || currentAnalysis.recommended_action === 'maintain';
+          const checklist: Partial<DamageChecklist> = currentAnalysis.damage_checklist || {};
+          const anyChecklist = Object.values(checklist).some((v) => v === true);
+          const isTrulyIntact =
+            !currentAnalysis.isFallback &&
+            (currentAnalysis.item_state === 'intact' || !currentAnalysis.item_state) &&
+            !anyChecklist &&
+            !currentAnalysis.damage_visible;
 
-          if (isNoFault) {
+          if (currentAnalysis.isFallback) {
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-700">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                  Visual Verdict Unavailable
+                </div>
+                <h4 className="text-base font-bold text-slate-900">
+                  Cannot assess damage without AI analysis
+                </h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Live AI multimodal vision is offline. Physical condition, casing integrity, and exposed components cannot be verified without active AI analysis.
+                </p>
+              </div>
+            );
+          }
+
+          if (isTrulyIntact) {
             return (
               <div className="space-y-3.5">
                 <div className="flex items-start justify-between gap-2">
@@ -528,7 +672,7 @@ export const AnalyzeScreen: React.FC = () => {
                 </div>
 
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  The item appears in sound physical condition with no obvious defects or damage observed. Proactive maintenance preserves its longevity.
+                  The item appears in sound physical condition with no open casing, exposed internals, or physical damage observed. Proactive maintenance preserves its longevity.
                 </p>
 
                 {/* Maintenance Tips */}
@@ -554,14 +698,17 @@ export const AnalyzeScreen: React.FC = () => {
             );
           }
 
+          // Damage / Disassembled detected
+          const isOpened = currentAnalysis.item_state === 'opened_or_disassembled';
+
           return (
             <div className="space-y-3.5">
               <div>
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">
-                  <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
-                  Likely Issue & Causes
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-rose-600">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                  {isOpened ? 'Disassembled / Exposed Internals' : 'Visible Physical Damage'}
                 </div>
-                <h4 className="text-sm font-bold text-slate-900 mt-1">
+                <h4 className="text-base font-bold text-slate-900 mt-1">
                   {currentAnalysis.likely_issue}
                 </h4>
               </div>
@@ -586,7 +733,7 @@ export const AnalyzeScreen: React.FC = () => {
               {currentAnalysis.troubleshooting_tips && currentAnalysis.troubleshooting_tips.length > 0 && (
                 <div className="pt-2 border-t border-slate-100 space-y-2">
                   <span className="text-xs font-bold text-slate-800 block">
-                    Safe Troubleshooting Checklist:
+                    Safe Troubleshooting & Repair Steps:
                   </span>
                   <div className="space-y-2">
                     {currentAnalysis.troubleshooting_tips.map((tip, idx) => (
@@ -604,6 +751,51 @@ export const AnalyzeScreen: React.FC = () => {
             </div>
           );
         })()}
+
+        {/* User Correction Buttons (Requirement 4) */}
+        <div className="pt-3 border-t border-slate-100 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Dispute or Correct AI Diagnosis
+            </span>
+            <span className="text-[10px] text-slate-400">Re-analyzes with user guidance</span>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              disabled={isReanalyzing}
+              onClick={async () => {
+                setIsReanalyzing(true);
+                try {
+                  await retryAnalysis('This looks wrong: it is damaged');
+                } finally {
+                  setIsReanalyzing(false);
+                }
+              }}
+              className="flex-1 py-2 px-3 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+              <span>This looks wrong: it is damaged</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isReanalyzing}
+              onClick={async () => {
+                setIsReanalyzing(true);
+                try {
+                  await retryAnalysis('This looks wrong: it is fine');
+                } finally {
+                  setIsReanalyzing(false);
+                }
+              }}
+              className="flex-1 py-2 px-3 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-[#2E9E6B]" />
+              <span>This looks wrong: it is fine</span>
+            </button>
+          </div>
+        </div>
 
         {/* Tell us what's wrong for a better diagnosis */}
         <div className="pt-3 border-t border-slate-100 space-y-2 bg-[#FAF9F5] p-3.5 rounded-2xl border border-amber-200/60">
@@ -642,11 +834,14 @@ export const AnalyzeScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Safety Note */}
+        {/* Safety Note (Requirement 6: Exposed electronics & batteries) */}
         {currentAnalysis.safety_note && (
-          <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 flex items-start gap-2 text-xs text-amber-950">
+          <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300/80 flex items-start gap-2.5 text-xs text-amber-950 shadow-2xs">
             <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <span>{currentAnalysis.safety_note}</span>
+            <div className="space-y-0.5">
+              <span className="font-bold text-amber-900 block">Safety Precaution:</span>
+              <p className="text-amber-950 leading-relaxed">{currentAnalysis.safety_note}</p>
+            </div>
           </div>
         )}
       </div>
@@ -655,6 +850,14 @@ export const AnalyzeScreen: React.FC = () => {
       <CostComparisonChart
         repairCost={currentAnalysis.repair_cost_inr}
         replaceCost={currentAnalysis.replace_cost_inr}
+        damageVisible={currentAnalysis.damage_visible}
+        itemState={currentAnalysis.item_state}
+        damageChecklist={currentAnalysis.damage_checklist}
+        recommendedAction={currentAnalysis.recommended_action}
+        costBasis={currentAnalysis.cost_basis}
+        costConfidence={currentAnalysis.cost_confidence}
+        troubleshootingTips={currentAnalysis.troubleshooting_tips}
+        isFallback={currentAnalysis.isFallback || currentAsset?.isDemoFallback}
       />
 
       {/* 6. Creative Reuse / Repurposing Ideas */}

@@ -156,6 +156,7 @@ app.use('/api', generalApiLimiter);
 // Zod validation schemas
 const analyzeSchema = z.object({
   imageBase64: z.string().max(15 * 1024 * 1024, 'Base64 image exceeds 15 MB limit').optional(),
+  additionalImages: z.array(z.string().max(15 * 1024 * 1024)).max(2).optional().default([]),
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/jpg']).optional(),
   imageUrl: z.string().url('Invalid image URL').max(2048).optional(),
   description: z.string().max(2000, 'Description exceeds 2000 characters limit').optional().default(''),
@@ -253,10 +254,6 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
     'Store in a cool, dry area away from direct sunlight and excessive humidity',
     'Perform periodic visual inspection of power cables, joints, and fasteners'
   ];
-  let minCost = 0;
-  let maxCost = 0;
-  let replaceMin = 2500;
-  let replaceMax = 6000;
   let wasteSaved = 2.0;
   let co2Saved = 5.0;
   let confidence = 88;
@@ -265,8 +262,6 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
   if (combined.includes('toaster') || combined.includes('kettle') || combined.includes('blender') || combined.includes('grinder') || combined.includes('microwave')) {
     item = combined.includes('toaster') ? 'Pop-up Toaster' : combined.includes('kettle') ? 'Electric Kettle' : 'Kitchen Appliance';
     category = 'Kitchen Appliances';
-    replaceMin = 1800;
-    replaceMax = 4500;
     wasteSaved = 1.8;
     co2Saved = 4.2;
 
@@ -280,16 +275,12 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
         'Clean crumb tray and heating chamber thoroughly with a soft nylon brush',
         'Test thermal continuity across fuse using a multimeter before replacing components'
       ];
-      minCost = 250;
-      maxCost = 650;
       confidence = 72;
-      reasoning = 'Appliance defect matches common thermal interruption. Component-level repair saves >75% of new purchase cost.';
+      reasoning = 'Appliance defect matches common thermal interruption.';
     }
   } else if (combined.includes('fan') || combined.includes('cooler') || combined.includes('iron') || combined.includes('vacuum') || combined.includes('heater')) {
     item = combined.includes('fan') ? 'Table / Pedestal Fan' : combined.includes('iron') ? 'Steam Iron' : 'Home Appliance';
     category = 'Home Appliances';
-    replaceMin = 2200;
-    replaceMax = 5500;
     wasteSaved = 2.8;
     co2Saved = 6.8;
 
@@ -303,16 +294,12 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
         'Apply 2-3 drops of synthetic non-detergent machine oil to front and rear shaft bearings',
         'Check capacitor capacitance rating with an LCR meter'
       ];
-      minCost = 180;
-      maxCost = 500;
       confidence = 74;
       reasoning = 'Mechanical binding is readily resolvable with lubrication and basic capacitor replacement.';
     }
   } else if (combined.includes('drill') || combined.includes('saw') || combined.includes('wrench') || combined.includes('tool') || combined.includes('hammer')) {
     item = combined.includes('drill') ? 'Rotary Power Drill' : 'Hand / Power Tool';
     category = 'Tools & DIY';
-    replaceMin = 3000;
-    replaceMax = 8000;
     wasteSaved = 3.2;
     co2Saved = 8.5;
 
@@ -326,10 +313,8 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
         'Blow compressed air through motor commutator vents to expel conductive dust',
         'Apply lithium grease to internal drive gears and chuck mechanisms'
       ];
-      minCost = 150;
-      maxCost = 450;
       confidence = 76;
-      reasoning = 'Durable tool housing and motor can easily provide 5+ more years of service with new brushes.';
+      reasoning = 'Durable tool housing and motor can easily provide continued service with new brushes.';
     } else {
       action = 'borrow';
       confidence = 90;
@@ -338,8 +323,6 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
   } else if (combined.includes('chair') || combined.includes('table') || combined.includes('desk') || combined.includes('lamp') || combined.includes('shelf')) {
     item = combined.includes('chair') ? 'Study / Ergonomic Chair' : 'Wooden Furniture';
     category = 'Furniture & Decor';
-    replaceMin = 3500;
-    replaceMax = 9000;
     wasteSaved = 8.0;
     co2Saved = 14.0;
 
@@ -353,10 +336,8 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
         'Inject wood glue into loose mortise joints and clamp firmly for 24 hours',
         'Lightly sand blemishes along the grain with 220-grit sandpaper and seal'
       ];
-      minCost = 100;
-      maxCost = 400;
       confidence = 78;
-      reasoning = 'High solid mass makes furniture repair the highest environmental return on investment.';
+      reasoning = 'Solid mass makes furniture repair an effective environmental action.';
     } else {
       action = 'donate';
       confidence = 88;
@@ -365,8 +346,6 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
   } else if (combined.includes('laptop') || combined.includes('phone') || combined.includes('audio') || combined.includes('speaker') || combined.includes('headphone') || combined.includes('monitor')) {
     item = combined.includes('speaker') ? 'Bluetooth Speaker' : combined.includes('headphone') ? 'Audio Headphones' : 'Personal Electronics';
     category = 'Electronics & Media';
-    replaceMin = 3000;
-    replaceMax = 12000;
     wasteSaved = 1.2;
     co2Saved = 9.0;
 
@@ -380,8 +359,6 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
         'Clean metal contact pins with 99% isopropyl alcohol and an anti-static brush',
         'Check battery terminal voltage with a multimeter before replacing'
       ];
-      minCost = 300;
-      maxCost = 1200;
       confidence = 70;
       reasoning = 'Electronics harbor high embedded carbon. Replacing the port or cell preserves the high-value circuit board.';
     }
@@ -396,25 +373,43 @@ function generateFallbackAnalysis(itemNameGuess: string, description: string, ta
         'Clean surfaces thoroughly with appropriate mild cleanser',
         'Lubricate pivot points or replace worn fasteners'
       ];
-      minCost = 150;
-      maxCost = 500;
       confidence = 65;
       reasoning = 'Minor repair restores full utility and keeps household items in active circulation.';
     }
   }
 
   return {
+    damage_checklist: {
+      casing_open_or_missing: false,
+      internal_parts_exposed: false,
+      cracks_or_breaks: false,
+      dents_or_deformation: false,
+      burn_or_corrosion: false,
+      missing_parts: false,
+      loose_or_hanging_parts: false,
+      heavy_wear_or_dirt: false,
+    },
+    item_state: 'unclear' as const,
+    visible_observations: [
+      'Cannot assess damage without AI analysis',
+      'Live AI vision is currently offline; physical photo features were not visually inspected',
+    ],
+    damage_visible: false,
+    damage_location: 'unknown',
+    what_to_check_next: 'Check physical condition, test basic operation, and re-analyze with live AI when online.',
     item_name: item,
     category,
-    condition,
-    likely_issue: likelyIssue,
-    possible_causes: causes,
+    condition: 'fair' as const,
+    likely_issue: 'Cannot assess damage without AI analysis',
+    possible_causes: [],
     troubleshooting_tips: tips,
-    recommended_action: action,
-    reasoning,
-    confidence,
-    repair_cost_inr: { min: minCost, max: maxCost },
-    replace_cost_inr: { min: replaceMin, max: replaceMax },
+    recommended_action: 'maintain' as const,
+    reasoning: 'Cannot assess damage without AI analysis. Visual inspection requires an active AI connection.',
+    confidence: 50,
+    repair_cost_inr: { min: 0, max: 0 },
+    replace_cost_inr: { min: 0, max: 0 },
+    cost_basis: 'Estimate unavailable without AI analysis',
+    cost_confidence: 'low' as const,
     reuse_ideas: [
       'Offer to borrow or share with verified neighbors in your neighborhood circle',
       'If upgrading later, donate to a local workshop or community center'
@@ -989,7 +984,14 @@ function formatGeminiError(err: any): { status: string | number; code: string | 
 }
 
 // Generate contextual offline notice based on exact Gemini call error
-function getFallbackNotice(errInfo: { status: string | number; code: string | number; message: string }): string {
+function getFallbackNotice(
+  errInfo: { status: string | number; code: string | number; message: string },
+  allModelsQuotaExhausted = false
+): string {
+  if (allModelsQuotaExhausted) {
+    return 'AI daily quota reached for all models. Showing preliminary offline estimate.';
+  }
+
   const statusStr = String(errInfo.status);
   const codeStr = String(errInfo.code);
 
@@ -1045,7 +1047,7 @@ app.post('/api/analyze', strictAiLimiter, requireAuth, async (req, res) => {
       });
     }
 
-    const { imageBase64, mimeType = 'image/jpeg', imageUrl, description = '', tags = [] } = validated.data;
+    const { imageBase64, additionalImages = [], mimeType = 'image/jpeg', imageUrl, description = '', tags = [] } = validated.data;
 
     if (!ai) {
       const fallback = generateFallbackAnalysis('Item', description, tags);
@@ -1058,130 +1060,226 @@ app.post('/api/analyze', strictAiLimiter, requireAuth, async (req, res) => {
       });
     }
 
-    // Step 1: Deliver & prepare lightweight image for Gemini (Cloudinary small version preferred)
+    // Step 1: Deliver & prepare lightweight image(s) for Gemini (up to 3 photos total)
     const tImgStart = performance.now();
-    let imagePart: any = null;
+    const imageParts: any[] = [];
     let imageSourceDesc = '';
 
-    // Prioritize small Cloudinary-delivered version (e.g. w_1024,c_limit,q_auto,f_auto)
+    // Prioritize Cloudinary delivered version if provided
     if (imageUrl) {
       try {
-        console.log(`[Timing][Req:${requestId}] Fetching small Cloudinary-delivered image for Gemini: ${imageUrl}`);
+        console.log(`[Timing][Req:${requestId}] Fetching Cloudinary-delivered image for Gemini: ${imageUrl}`);
         const imgFetchStart = performance.now();
-        const imgRes = await callWithTimeout(fetch(imageUrl), 6000, 'Cloudinary small image fetch');
+        const imgRes = await callWithTimeout(fetch(imageUrl), 6000, 'Cloudinary image fetch');
         if (imgRes.ok) {
           const arrayBuf = await imgRes.arrayBuffer();
           const fetchedBase64 = Buffer.from(arrayBuf).toString('base64');
           const rawMime = imgRes.headers.get('content-type') || mimeType || 'image/jpeg';
           const cleanMime = rawMime.split(';')[0].trim();
-          imagePart = {
+          imageParts.push({
             inlineData: {
               data: fetchedBase64,
               mimeType: cleanMime,
             },
-          };
+          });
           const fetchMs = Math.round(performance.now() - imgFetchStart);
-          imageSourceDesc = `Cloudinary small delivered image (${(arrayBuf.byteLength / 1024).toFixed(1)} KB in ${fetchMs}ms)`;
+          imageSourceDesc = `Cloudinary delivered image (${(arrayBuf.byteLength / 1024).toFixed(1)} KB in ${fetchMs}ms)`;
         } else {
           console.warn(`[Timing][Req:${requestId}] Cloudinary image fetch returned status ${imgRes.status}, falling back to base64`);
         }
       } catch (fetchErr: any) {
-        console.warn(`[Timing][Req:${requestId}] Could not fetch small Cloudinary image (${fetchErr?.message}), using base64 fallback`);
+        console.warn(`[Timing][Req:${requestId}] Could not fetch Cloudinary image (${fetchErr?.message}), using base64 fallback`);
       }
     }
 
-    // Fallback to client-compressed imageBase64 if Cloudinary small image fetch unavailable
-    if (!imagePart && imageBase64) {
+    // Fallback to client-compressed imageBase64 if Cloudinary fetch unavailable
+    if (imageParts.length === 0 && imageBase64) {
       const cleanBase64 = imageBase64.replace(/^data:[a-z/]+;base64,/, '');
-      imagePart = {
+      imageParts.push({
         inlineData: {
           data: cleanBase64,
           mimeType: mimeType || 'image/jpeg',
         },
-      };
+      });
       imageSourceDesc = `Client-compressed imageBase64 (${(cleanBase64.length * 0.75 / 1024).toFixed(1)} KB)`;
+    }
+
+    // Attach optional additional photos (e.g. damage close-ups, up to 3 total photos)
+    if (additionalImages && additionalImages.length > 0) {
+      for (let idx = 0; idx < additionalImages.length; idx++) {
+        const addImg = additionalImages[idx];
+        if (addImg && typeof addImg === 'string') {
+          const cleanAdd = addImg.replace(/^data:[a-z/]+;base64,/, '');
+          imageParts.push({
+            inlineData: {
+              data: cleanAdd,
+              mimeType: mimeType || 'image/jpeg',
+            },
+          });
+        }
+      }
+      imageSourceDesc += ` + ${additionalImages.length} additional photo(s)`;
     }
 
     const tImgPrep = Math.round(performance.now() - tImgStart);
     console.log(`[Timing][Req:${requestId}] Image delivery & preparation: ${tImgPrep}ms [Source: ${imageSourceDesc}]`);
 
     const promptText = `
-You are SecondLife AI, an expert circular economy and item diagnostics specialist.
-Analyze this photo of an item.
-User description of the item: "${description || 'None provided'}".
-Cloudinary detected tags: ${tags.length > 0 ? tags.join(', ') : 'None'}.
+You are SecondLife AI, an expert circular economy and physical item diagnostics specialist.
+Examine the attached photo(s) of the item very closely before reaching any conclusion.
+User's problem description: "${description || 'None provided'}".
+Detected tags: ${tags.length > 0 ? tags.join(', ') : 'None'}.
 
-CRITICAL DIAGNOSTIC RULES:
-1. HONEST DIAGNOSIS:
-   - When the user does NOT describe a problem or defect AND the item in the photo appears intact and in good condition with no visible damage, you MUST report:
-     * likely_issue: "No fault detected"
-     * condition: "good"
-     * recommended_action: "maintain"
-     * possible_causes: [] (empty array)
-     * troubleshooting_tips: provide 3 practical proactive maintenance & care tips to keep it in peak condition
-     * repair_cost_inr: { "min": 0, "max": 0 }
-     * reasoning: State clearly that the item appears in good condition with no visible faults, and routine maintenance is recommended to extend its lifespan.
-     * confidence: between 85 and 95
-2. ONLY CLAIM A SPECIFIC FAULT IF:
-   - Clear visual damage, wear, or breakage is evident in the photo, OR
-   - The user's description explicitly states a specific problem or malfunction (e.g. "motor doesn't turn", "cracked case", "won't power on").
-   - Your confidence score must honestly reflect the strength of evidence (e.g., 55-65% if guessing/uncertain from minimal visual cues, 80-95% only if clear damage or explicit user description is present).
-3. Recommended action must be one of: "maintain" | "repair" | "borrow" | "donate" | "repurpose" | "replace".
-4. COMPACT & FAST OUTPUT: Keep all descriptions, tips, and reasoning concise (1-2 sentences max), lists to 2-3 items, and avoid verbose filler so the JSON response remains compact and fast.
+INSPECTION PROTOCOL:
+1. DAMAGE CHECKLIST FIRST (PHOTO EVIDENCE STRICTLY OUTRANKS USER DESCRIPTION):
+   - You MUST first evaluate and set boolean true/false for each of the following 8 physical damage checks:
+     * casing_open_or_missing: True if the outer protective housing, shell, lid, earbud shell, or cover is popped open, missing, cracked open, or removed.
+     * internal_parts_exposed: True if green circuit boards (PCBs), wires, micro-chips, coils, magnets, or internal battery cells are visible to the outside world.
+     * cracks_or_breaks: True if fractures, splits, snaps, or severed parts are visible.
+     * dents_or_deformation: True if casing or structure is visibly warped, crushed, bent, or deformed.
+     * burn_or_corrosion: True if scorch marks, melted plastic, rust, battery electrolyte leakage, or green/white corrosion is visible.
+     * missing_parts: True if buttons, screws, ear tips, battery covers, or structural fasteners are absent.
+     * loose_or_hanging_parts: True if components, wires, or hinges dangle or are detached from their mounting.
+     * heavy_wear_or_dirt: True if severe scuffing, fraying, caked grime, or thermal discoloration is visible.
 
-Return ONLY a valid JSON object matching this schema:
-{
-  "item_name": "string (e.g., Phillips Pop-up Toaster)",
-  "category": "string (e.g., Kitchen Appliances, Electronics, Furniture, Tools, Apparel)",
-  "condition": "good" | "fair" | "damaged",
-  "likely_issue": "string ('No fault detected' when no problem was described and item looks fine, or specific diagnosed defect)",
-  "possible_causes": ["string"],
-  "troubleshooting_tips": ["actionable maintenance or repair tip 1", "actionable tip 2", "actionable tip 3"],
-  "recommended_action": "maintain" | "repair" | "borrow" | "donate" | "repurpose" | "replace",
-  "reasoning": "2-3 sentences explaining why this action is optimal for circular economy and wallet",
-  "confidence": integer between 50 and 99,
-  "repair_cost_inr": { "min": integer, "max": integer },
-  "replace_cost_inr": { "min": integer, "max": integer },
-  "reuse_ideas": ["creative repurpose idea 1", "creative repurpose idea 2"],
-  "estimated_waste_saved_kg": number (e.g. 2.4),
-  "estimated_co2_saved_kg": number (e.g. 5.6),
-  "photo_quality": {
-    "score": integer between 50 and 100,
-    "issues": ["string issue 1", "string issue 2"],
-    "tip": "suggestion to improve photo trust score on community listing"
-  },
-  "safety_note": "clear safety instruction (e.g. electrical isolation, cut hazards, or safety glasses)"
-}
+2. ITEM STATE & VERDICT INTEGRITY:
+   - Determine 'item_state':
+     * "intact": Item is physically assembled, sealed in its factory housing, with no exposed internals and no breaks.
+     * "opened_or_disassembled": Casing is split, removed, unlatched, or internal circuit boards/wiring are exposed.
+     * "broken": Structural fracture, snapped parts, shattered screen, or mechanical breakdown.
+     * "worn": Intact factory enclosure but heavy cosmetic, abrasive, or cable wear.
+     * "unclear": Photo is too blurry, dark, blank, or obstructed to identify physical condition.
+   - DAMAGE RULES:
+     * If ANY checklist item above is true, 'damage_visible' MUST BE TRUE!
+     * If 'item_state' is NOT "intact" (e.g. opened_or_disassembled, broken, worn), 'condition' must be "damaged" or "fair" (NEVER "good").
+     * An item with exposed internals, a missing or open casing (such as an earbud with casing removed showing green PCB), or dangling parts IS VISIBLY DAMAGED even if the user provided no text description! The absence of a description never means "no fault". Photo evidence strictly outranks user silence.
+     * Report 'likely_issue' as "No visible damage" and recommend "maintain" ONLY when EVERY checklist item is FALSE and 'item_state' is "intact". In that case, ask in 'what_to_check_next' whether it powers on, makes noise, holds charge, or leaks.
+
+3. UNIDENTIFIED / BLANK PHOTO HANDLING:
+   - If the photo is completely blank, blurry, obstructed, or does not depict an identifiable physical product:
+     * Set 'item_name' to "Unidentified".
+     * Set 'item_state' to "unclear".
+     * Set 'damage_visible' to false, 'damage_location' to "none".
+     * Set all checklist items to false.
+     * Set 'condition' to "fair".
+     * Set 'likely_issue' to "No identifiable item in photo".
+     * Set 'recommended_action' to "maintain".
+     * Set 'repair_cost_inr' to { "min": 0, "max": 0 }, 'replace_cost_inr' to { "min": 0, "max": 0 }.
+     * Set 'cost_basis' to "Estimate unavailable for unidentified photos", 'cost_confidence' to "low".
+     * Set 'what_to_check_next' to ask the user for a clear, well-lit photo of the item.
+
+4. REPAIR VS REPLACE FOR LOW-COST ELECTRONICS (INR ₹):
+   - Name the specific identified item and brand if visible (e.g. "Boult Audio True Wireless Earbud", "boAt Airdopes Earbud", "USB-C Fast Charger").
+   - For small, low-cost electronics (TWS earbuds, charging cables, adapters, phone accessories):
+     * Buying a single replacement or new pair in India often costs ₹800 - ₹2,500.
+     * Micro-soldering, battery micro-transplants, or re-shelling an open earbud often requires precision tools or costs ₹400 - ₹1,000, which is frequently unfeasible or uneconomical.
+     * When repair effort/cost is not worthwhile compared to new replacement value or parts are inaccessible, recommend "replace", "repurpose", or certified e-waste recycling!
+     * Estimate genuine costs in Indian Rupees for that exact brand/model tier, with 'cost_basis' (one short sentence) and 'cost_confidence' ("high", "medium", or "low"). Never reuse flat default numbers!
+
+5. SAFETY PRECAUTIONS:
+   - For exposed electronics, bare circuit boards, open wiring, or exposed batteries (especially lithium-ion pouch cells in earbuds/phones):
+     * ALWAYS populate 'safety_note' with: "Do not charge or power on while internal circuitry is exposed. Keep away from moisture and handle lithium cells carefully to prevent short-circuits or thermal hazards."
 `;
 
     const contents = [
       {
         parts: [
-          ...(imagePart ? [imagePart] : []),
+          ...imageParts,
           { text: promptText },
         ],
       },
     ];
 
-    // Step 2: Execute Gemini call without timeout and with 1 retry only for real network errors
-    const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+    // Step 2: Build model list with automatic fallback
+    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+    const fallbackList = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest'];
+    const modelsToTry = Array.from(new Set([primaryModel, ...fallbackList]));
+
     let response: any = null;
+    let successfulModel = '';
     let geminiAttempts = 0;
-    let attempt1Duration = 0;
-    let attempt2Duration = 0;
+    let totalGeminiDuration = 0;
+    let lastError: any = null;
+    let lastErrorInfo: any = null;
+    const modelFailures: { model: string; status: string | number; is429: boolean; is404: boolean }[] = [];
+
+    const is429Error = (info: { status: string | number; code: string | number; message: string }) => {
+      const s = String(info.status);
+      const c = String(info.code);
+      return s === '429' || c === 'RESOURCE_EXHAUSTED' || info.message.includes('429') || info.message.toLowerCase().includes('quota');
+    };
+
+    const is404Error = (info: { status: string | number; code: string | number; message: string }) => {
+      const s = String(info.status);
+      const c = String(info.code);
+      return s === '404' || c === 'NOT_FOUND' || info.message.includes('404') || info.message.toLowerCase().includes('not found');
+    };
+
+    const isRealNetworkError = (info: { code: string | number; message: string }, rawErr: any) => {
+      const networkCodes = ['ECONNRESET', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'];
+      return (
+        networkCodes.includes(String(info.code)) ||
+        networkCodes.includes(String(rawErr?.code)) ||
+        networkCodes.includes(String(rawErr?.cause?.code)) ||
+        rawErr?.name === 'FetchError' ||
+        info.message.toLowerCase().includes('fetch failed') ||
+        info.message.toLowerCase().includes('network') ||
+        info.message.toLowerCase().includes('econnreset') ||
+        info.message.toLowerCase().includes('enotfound') ||
+        info.message.toLowerCase().includes('eai_again')
+      );
+    };
 
     const geminiConfig = {
       responseMimeType: 'application/json',
       maxOutputTokens: 2048,
+      temperature: 0.4,
+      thinkingConfig: {
+        thinkingBudget: 1024,
+      },
       responseSchema: {
         type: Type.OBJECT,
         properties: {
+          damage_checklist: {
+            type: Type.OBJECT,
+            properties: {
+              casing_open_or_missing: { type: Type.BOOLEAN },
+              internal_parts_exposed: { type: Type.BOOLEAN },
+              cracks_or_breaks: { type: Type.BOOLEAN },
+              dents_or_deformation: { type: Type.BOOLEAN },
+              burn_or_corrosion: { type: Type.BOOLEAN },
+              missing_parts: { type: Type.BOOLEAN },
+              loose_or_hanging_parts: { type: Type.BOOLEAN },
+              heavy_wear_or_dirt: { type: Type.BOOLEAN },
+            },
+            required: [
+              'casing_open_or_missing',
+              'internal_parts_exposed',
+              'cracks_or_breaks',
+              'dents_or_deformation',
+              'burn_or_corrosion',
+              'missing_parts',
+              'loose_or_hanging_parts',
+              'heavy_wear_or_dirt',
+            ],
+          },
+          item_state: {
+            type: Type.STRING,
+            enum: ['intact', 'opened_or_disassembled', 'broken', 'worn', 'unclear'],
+          },
+          visible_observations: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+          },
+          damage_visible: { type: Type.BOOLEAN },
+          damage_location: { type: Type.STRING },
           item_name: { type: Type.STRING },
           category: { type: Type.STRING },
           condition: { type: Type.STRING, enum: ['good', 'fair', 'damaged'] },
           likely_issue: { type: Type.STRING },
           possible_causes: { type: Type.ARRAY, items: { type: Type.STRING } },
           troubleshooting_tips: { type: Type.ARRAY, items: { type: Type.STRING } },
+          what_to_check_next: { type: Type.STRING },
           recommended_action: {
             type: Type.STRING,
             enum: ['maintain', 'repair', 'borrow', 'donate', 'repurpose', 'replace'],
@@ -1204,6 +1302,8 @@ Return ONLY a valid JSON object matching this schema:
             },
             required: ['min', 'max'],
           },
+          cost_basis: { type: Type.STRING },
+          cost_confidence: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
           reuse_ideas: { type: Type.ARRAY, items: { type: Type.STRING } },
           estimated_waste_saved_kg: { type: Type.NUMBER },
           estimated_co2_saved_kg: { type: Type.NUMBER },
@@ -1219,17 +1319,25 @@ Return ONLY a valid JSON object matching this schema:
           safety_note: { type: Type.STRING },
         },
         required: [
+          'damage_checklist',
+          'item_state',
+          'visible_observations',
+          'damage_visible',
+          'damage_location',
           'item_name',
           'category',
           'condition',
           'likely_issue',
           'possible_causes',
           'troubleshooting_tips',
+          'what_to_check_next',
           'recommended_action',
           'reasoning',
           'confidence',
           'repair_cost_inr',
           'replace_cost_inr',
+          'cost_basis',
+          'cost_confidence',
           'reuse_ideas',
           'estimated_waste_saved_kg',
           'estimated_co2_saved_kg',
@@ -1241,106 +1349,134 @@ Return ONLY a valid JSON object matching this schema:
 
     const configOptionNames = Object.keys(geminiConfig).join(', ');
 
-    const executeGemini = () =>
-      ai!.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: contents[0],
-        config: geminiConfig,
-      });
+    const totalImages = imageParts.length;
+    const totalImageSizeKb = imageParts.reduce((acc, part) => {
+      const b64 = part?.inlineData?.data;
+      return acc + (b64 ? Buffer.byteLength(b64, 'base64') / 1024 : 0);
+    }, 0).toFixed(1);
 
-    // Attempt 1
-    geminiAttempts = 1;
-    const imageSizeKb = imagePart?.inlineData?.data
-      ? (Buffer.byteLength(imagePart.inlineData.data, 'base64') / 1024).toFixed(1)
-      : '0.0';
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const currentModel = modelsToTry[i];
+      const nextModel = i + 1 < modelsToTry.length ? modelsToTry[i + 1] : null;
+      geminiAttempts++;
 
-    const tGeminiStart1 = performance.now();
-    try {
-      console.log(`[Timing][Req:${requestId}] Calling Gemini Vision API (Attempt 1/2, Model: ${GEMINI_MODEL}, Config: [${configOptionNames}], Image Size: ${imageSizeKb} KB)...`);
-      response = await executeGemini();
-      attempt1Duration = Math.round(performance.now() - tGeminiStart1);
-      const first200Chars = (response?.text || '').slice(0, 200).replace(/\r?\n/g, ' ');
-      console.log(
-        `[Gemini Call Succeeded][Req:${requestId}]\n` +
-        `  • Model:        ${GEMINI_MODEL}\n` +
-        `  • Config:       [${configOptionNames}]\n` +
-        `  • Image Size:   ${imageSizeKb} KB\n` +
-        `  • Elapsed:      ${attempt1Duration}ms (${(attempt1Duration / 1000).toFixed(2)}s)\n` +
-        `  • Snippet:      "${first200Chars}"`
-      );
-    } catch (err1: any) {
-      attempt1Duration = Math.round(performance.now() - tGeminiStart1);
-      const errInfo1 = formatGeminiError(err1);
-      console.warn(
-        `[Gemini Call Failed (Attempt 1/2)][Req:${requestId}]\n` +
-        `  • Model Name:          ${GEMINI_MODEL}\n` +
-        `  • Config Options Sent: ${configOptionNames}\n` +
-        `  • Image Size:          ${imageSizeKb} KB\n` +
-        `  • Elapsed:             ${attempt1Duration}ms (${(attempt1Duration / 1000).toFixed(2)}s)\n` +
-        `  • error.status:        ${err1?.status ?? errInfo1.status}\n` +
-        `  • error.message:       ${err1?.message ?? errInfo1.message}\n` +
-        `  • Error Code:          ${errInfo1.code}\n` +
-        `  • Full Response Body:  ${errInfo1.fullError}`
-      );
-
-      // If HTTP 429 quota error, do NOT retry. Return immediately to fall back.
-      const is429 = String(errInfo1.status) === '429' || String(errInfo1.code) === 'RESOURCE_EXHAUSTED' || errInfo1.message.includes('429');
-      if (is429) {
-        console.warn(`[Timing][Req:${requestId}] HTTP 429 quota reached. Skipping retry and returning immediately.`);
-        throw err1;
-      }
-
-      // Keep retry only for real network errors (DNS, reset, socket closed, etc.)
-      const isNetworkError =
-        ['ECONNRESET', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'].includes(String(errInfo1.code)) ||
-        ['ECONNRESET', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'].includes(String(err1?.code)) ||
-        ['ECONNRESET', 'ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'].includes(String(err1?.cause?.code)) ||
-        err1?.name === 'FetchError' ||
-        errInfo1.message.toLowerCase().includes('fetch failed') ||
-        errInfo1.message.toLowerCase().includes('network') ||
-        errInfo1.message.toLowerCase().includes('econnreset') ||
-        errInfo1.message.toLowerCase().includes('enotfound') ||
-        errInfo1.message.toLowerCase().includes('eai_again');
-
-      if (!isNetworkError) {
-        console.warn(`[Timing][Req:${requestId}] Non-network error encountered (Status: ${errInfo1.status}, Code: ${errInfo1.code}). Skipping retry.`);
-        throw err1;
-      }
-
-      console.warn(`[Timing][Req:${requestId}] Network error encountered. Retrying once (Attempt 2/2)...`);
-
-      // Attempt 2 (Retry on real network error only)
-      geminiAttempts = 2;
-      const tGeminiStart2 = performance.now();
+      const tStart = performance.now();
       try {
-        response = await executeGemini();
-        attempt2Duration = Math.round(performance.now() - tGeminiStart2);
-        const first200CharsRetry = (response?.text || '').slice(0, 200).replace(/\r?\n/g, ' ');
+        console.log(`[Timing][Req:${requestId}] Calling Gemini Vision API (Attempt ${geminiAttempts}, Model: ${currentModel}, Config: [${configOptionNames}], Images: ${totalImages}, Total Size: ${totalImageSizeKb} KB)...`);
+        response = await ai!.models.generateContent({
+          model: currentModel,
+          contents: contents[0],
+          config: geminiConfig,
+        });
+        const elapsed = Math.round(performance.now() - tStart);
+        totalGeminiDuration += elapsed;
+        successfulModel = currentModel;
+        const first200Chars = (response?.text || '').slice(0, 200).replace(/\r?\n/g, ' ');
         console.log(
-          `[Gemini Call Succeeded (Retry)][Req:${requestId}]\n` +
-          `  • Model:        ${GEMINI_MODEL}\n` +
+          `[Gemini Call Succeeded][Req:${requestId}]\n` +
+          `  • Model:        ${currentModel}\n` +
           `  • Config:       [${configOptionNames}]\n` +
-          `  • Image Size:   ${imageSizeKb} KB\n` +
-          `  • Elapsed:      ${attempt2Duration}ms (${(attempt2Duration / 1000).toFixed(2)}s)\n` +
-          `  • Snippet:      "${first200CharsRetry}"`
+          `  • Images:       ${totalImages} (${totalImageSizeKb} KB total)\n` +
+          `  • Elapsed:      ${elapsed}ms (${(elapsed / 1000).toFixed(2)}s)\n` +
+          `  • Snippet:      "${first200Chars}"`
         );
-      } catch (err2: any) {
-        attempt2Duration = Math.round(performance.now() - tGeminiStart2);
-        const errInfo2 = formatGeminiError(err2);
-        console.error(
-          `[Gemini Call Failed (Attempt 2/2)][Req:${requestId}]\n` +
-          `  • Model Name:          ${GEMINI_MODEL}\n` +
+        break; // Successfully answered!
+      } catch (err1: any) {
+        const elapsed = Math.round(performance.now() - tStart);
+        totalGeminiDuration += elapsed;
+        const errInfo1 = formatGeminiError(err1);
+        lastError = err1;
+        lastErrorInfo = errInfo1;
+
+        const is429 = is429Error(errInfo1);
+        const is404 = is404Error(errInfo1);
+        modelFailures.push({ model: currentModel, status: errInfo1.status, is429, is404 });
+
+        console.warn(
+          `[Gemini Call Failed][Req:${requestId}]\n` +
+          `  • Model Name:          ${currentModel}\n` +
           `  • Config Options Sent: ${configOptionNames}\n` +
-          `  • Image Size:          ${imageSizeKb} KB\n` +
-          `  • Elapsed:             ${attempt2Duration}ms (${(attempt2Duration / 1000).toFixed(2)}s)\n` +
-          `  • error.status:        ${err2?.status ?? errInfo2.status}\n` +
-          `  • error.message:       ${err2?.message ?? errInfo2.message}\n` +
-          `  • Error Code:          ${errInfo2.code}\n` +
-          `  • Full Response Body:  ${errInfo2.fullError}\n` +
-          `  • Network retry failed.`
+          `  • Images:              ${totalImages} (${totalImageSizeKb} KB total)\n` +
+          `  • Elapsed:             ${elapsed}ms (${(elapsed / 1000).toFixed(2)}s)\n` +
+          `  • error.status:        ${err1?.status ?? errInfo1.status}\n` +
+          `  • error.message:       ${err1?.message ?? errInfo1.message}\n` +
+          `  • Error Code:          ${errInfo1.code}\n` +
+          `  • Full Response Body:  ${errInfo1.fullError}`
         );
-        throw err2;
+
+        if (is429) {
+          if (nextModel) {
+            console.warn(`[Timing][Req:${requestId}] ${currentModel} quota exhausted, trying ${nextModel}`);
+          } else {
+            console.warn(`[Timing][Req:${requestId}] ${currentModel} quota exhausted, no more fallback models`);
+          }
+          continue; // Move straight to next model without retrying the same one
+        }
+
+        if (is404) {
+          if (nextModel) {
+            console.warn(`[Timing][Req:${requestId}] ${currentModel} unavailable (HTTP 404), trying ${nextModel}`);
+          } else {
+            console.warn(`[Timing][Req:${requestId}] ${currentModel} unavailable (HTTP 404), no more fallback models`);
+          }
+          continue; // Move straight to next model without retrying the same one
+        }
+
+        // Real network timeouts/errors keep the existing retry on the same model
+        if (isRealNetworkError(errInfo1, err1)) {
+          console.warn(`[Timing][Req:${requestId}] Network error on ${currentModel}. Retrying once on same model...`);
+          geminiAttempts++;
+          const tRetryStart = performance.now();
+          try {
+            response = await ai!.models.generateContent({
+              model: currentModel,
+              contents: contents[0],
+              config: geminiConfig,
+            });
+            const retryElapsed = Math.round(performance.now() - tRetryStart);
+            totalGeminiDuration += retryElapsed;
+            successfulModel = currentModel;
+            const first200Chars = (response?.text || '').slice(0, 200).replace(/\r?\n/g, ' ');
+            console.log(
+              `[Gemini Call Succeeded (Retry)][Req:${requestId}]\n` +
+              `  • Model:        ${currentModel}\n` +
+              `  • Config:       [${configOptionNames}]\n` +
+              `  • Images:       ${totalImages} (${totalImageSizeKb} KB total)\n` +
+              `  • Elapsed:      ${retryElapsed}ms (${(retryElapsed / 1000).toFixed(2)}s)\n` +
+              `  • Snippet:      "${first200Chars}"`
+            );
+            break; // Succeeded on retry!
+          } catch (retryErr: any) {
+            const retryElapsed = Math.round(performance.now() - tRetryStart);
+            totalGeminiDuration += retryElapsed;
+            const retryErrInfo = formatGeminiError(retryErr);
+            lastError = retryErr;
+            lastErrorInfo = retryErrInfo;
+            console.error(
+              `[Gemini Retry Failed][Req:${requestId}]\n` +
+              `  • Model Name:          ${currentModel}\n` +
+              `  • Images:              ${totalImages} (${totalImageSizeKb} KB total)\n` +
+              `  • Elapsed:             ${retryElapsed}ms (${(retryElapsed / 1000).toFixed(2)}s)\n` +
+              `  • error.status:        ${retryErr?.status ?? retryErrInfo.status}\n` +
+              `  • error.message:       ${retryErr?.message ?? retryErrInfo.message}\n` +
+              `  • Error Code:          ${retryErrInfo.code}\n` +
+              `  • Full Response Body:  ${retryErrInfo.fullError}\n` +
+              `  • Network retry failed.`
+            );
+            throw retryErr;
+          }
+        }
+
+        // Any other non-429, non-404, non-network error, fail fast
+        throw err1;
       }
+    }
+
+    if (!response) {
+      const all429 = modelFailures.length > 0 && modelFailures.every((f) => f.is429);
+      const fallbackErr: any = lastError || new Error('All candidate Gemini models failed');
+      fallbackErr.allModelsQuotaExhausted = all429;
+      throw fallbackErr;
     }
 
     // Step 3: Parse & sanitize structured JSON response
@@ -1348,16 +1484,39 @@ Return ONLY a valid JSON object matching this schema:
     const responseText = response.text || '{}';
     const cleanJson = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsedData = JSON.parse(cleanJson);
+
+    // Enforce verdict contract rules strictly
+    const checklist = parsedData.damage_checklist || {};
+    const anyChecklistTrue = Object.values(checklist).some((val) => val === true);
+    if (anyChecklistTrue) {
+      parsedData.damage_visible = true;
+      if (!parsedData.item_state || parsedData.item_state === 'intact') {
+        parsedData.item_state = (checklist.casing_open_or_missing || checklist.internal_parts_exposed)
+          ? 'opened_or_disassembled'
+          : 'broken';
+      }
+    }
+    if (parsedData.item_state && parsedData.item_state !== 'intact') {
+      if (parsedData.condition === 'good') {
+        parsedData.condition = 'damaged';
+      }
+    }
+    if (checklist.casing_open_or_missing || checklist.internal_parts_exposed) {
+      const cautionText = 'Do not charge or power on while internal circuitry is exposed. Keep away from moisture and handle lithium cells carefully.';
+      if (!parsedData.safety_note || !parsedData.safety_note.toLowerCase().includes('do not charge')) {
+        parsedData.safety_note = parsedData.safety_note ? `${parsedData.safety_note} ${cautionText}` : cautionText;
+      }
+    }
+
     const tParse = Math.round(performance.now() - tParseStart);
 
     const totalAnalyzeMs = Math.round(performance.now() - t0);
-    const totalGeminiMs = attempt1Duration + attempt2Duration;
 
     // Comprehensive timing summary printout
     console.log(
       `\n[Timing Summary][Req:${requestId}] ════════ Photo Analysis Performance ════════\n` +
       `[Timing Summary][Req:${requestId}]   • Image Delivery & Prep: ${tImgPrep}ms [${imageSourceDesc}]\n` +
-      `[Timing Summary][Req:${requestId}]   • Gemini API Duration:   ${totalGeminiMs}ms [${geminiAttempts} attempt(s), Model: ${GEMINI_MODEL}]\n` +
+      `[Timing Summary][Req:${requestId}]   • Gemini API Duration:   ${totalGeminiDuration}ms [${geminiAttempts} attempt(s), Model: ${successfulModel || 'gemini'}]\n` +
       `[Timing Summary][Req:${requestId}]   • Response JSON Parse:   ${tParse}ms\n` +
       `[Timing Summary][Req:${requestId}]   • Total /api/analyze:    ${totalAnalyzeMs}ms\n` +
       `[Timing Summary][Req:${requestId}] ══════════════════════════════════════════════\n`
@@ -1365,29 +1524,29 @@ Return ONLY a valid JSON object matching this schema:
 
     return res.json({
       data: { ...parsedData, isFallback: false },
-      source: GEMINI_MODEL,
+      source: 'gemini',
       timing: {
         totalMs: totalAnalyzeMs,
         imagePrepMs: tImgPrep,
-        geminiMs: totalGeminiMs,
+        geminiMs: totalGeminiDuration,
         attempts: geminiAttempts,
       },
     });
   } catch (error: any) {
     const totalFallbackMs = Math.round(performance.now() - t0);
     const errInfo = formatGeminiError(error);
-    const currentModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+    const allModelsQuotaExhausted = Boolean((error as any)?.allModelsQuotaExhausted);
+
     console.error(
       `[Server Error][Req:${requestId}] Gemini analysis failed after ${totalFallbackMs}ms (Falling back to offline estimate):\n` +
-      `  • Model Name:          ${currentModel}\n` +
-      `  • Config Options Sent: responseMimeType, maxOutputTokens, responseSchema\n` +
       `  • error.status:        ${error?.status ?? errInfo.status}\n` +
       `  • error.message:       ${error?.message ?? errInfo.message}\n` +
       `  • Error Code:          ${errInfo.code}\n` +
+      `  • All Models 429:      ${allModelsQuotaExhausted}\n` +
       `  • Full Response Body:  ${errInfo.fullError}`
     );
 
-    const fallbackNotice = getFallbackNotice(errInfo);
+    const fallbackNotice = getFallbackNotice(errInfo, allModelsQuotaExhausted);
 
     const fallback = generateFallbackAnalysis(
       req.body?.description || 'Item',

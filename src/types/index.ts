@@ -1,7 +1,25 @@
 export type ActionType = 'repair' | 'borrow' | 'donate' | 'repurpose' | 'replace' | 'maintain';
 export type ConditionType = 'good' | 'fair' | 'damaged' | 'like-new';
+export type ItemState = 'intact' | 'opened_or_disassembled' | 'broken' | 'worn' | 'unclear';
+
+export interface DamageChecklist {
+  casing_open_or_missing: boolean;
+  internal_parts_exposed: boolean;
+  cracks_or_breaks: boolean;
+  dents_or_deformation: boolean;
+  burn_or_corrosion: boolean;
+  missing_parts: boolean;
+  loose_or_hanging_parts: boolean;
+  heavy_wear_or_dirt: boolean;
+}
 
 export interface ItemAnalysis {
+  damage_checklist?: DamageChecklist;
+  item_state?: ItemState;
+  visible_observations?: string[];
+  damage_visible?: boolean;
+  damage_location?: string;
+  what_to_check_next?: string;
   item_name: string;
   category: string;
   condition: 'good' | 'fair' | 'damaged' | 'like-new';
@@ -19,6 +37,8 @@ export interface ItemAnalysis {
     min: number;
     max: number;
   };
+  cost_basis?: string;
+  cost_confidence?: 'low' | 'medium' | 'high';
   reuse_ideas: string[];
   estimated_waste_saved_kg: number;
   estimated_co2_saved_kg: number;

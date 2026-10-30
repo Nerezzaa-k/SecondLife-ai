@@ -95,7 +95,7 @@ interface AppContextType {
   analysisStageMessage: string;
 
   // Actions
-  analyzePhoto: (fileOrUrl: File | string, description?: string) => Promise<void>;
+  analyzePhoto: (fileOrUrl: File | string, description?: string, additionalPhotos?: (File | Blob)[]) => Promise<void>;
   retryAnalysis: (customDescription?: string) => Promise<void>;
   updateAnalysisField: <K extends keyof ItemAnalysis>(field: K, value: ItemAnalysis[K]) => void;
 
@@ -255,6 +255,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [analysisStage, setAnalysisStage] = useState<'idle' | 'optimizing' | 'uploading' | 'analyzing' | 'finalizing'>('idle');
   const [analysisStageMessage, setAnalysisStageMessage] = useState<string>('');
   const [lastAnalyzedFileOrUrl, setLastAnalyzedFileOrUrl] = useState<File | string | null>(null);
+  const [lastAnalyzedAdditionalPhotos, setLastAnalyzedAdditionalPhotos] = useState<(File | Blob)[]>([]);
 
   // User Stats & Badges (Phase 4 Real Impact)
   const [userStats, setUserStats] = useState<UserStats>(DEFAULT_STATS);
@@ -1006,8 +1007,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Main flow: Browser Compress -> Cloudinary Upload -> Parallel Gemini Analysis & Media Processing -> Best Next Action
-  const analyzePhoto = async (fileOrUrl: File | string, description = '') => {
+  const analyzePhoto = async (fileOrUrl: File | string, description = '', additionalPhotos: (File | Blob)[] = []) => {
     setLastAnalyzedFileOrUrl(fileOrUrl);
+    setLastAnalyzedAdditionalPhotos(additionalPhotos);
     setAnalysisError(null);
     setIsUploading(true);
     setUploadProgress(0);
@@ -1018,9 +1020,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let compressedBase64 = '';
       let parallelMediaTasks: Promise<void> | null = null;
 
-      // Stage 1: Optimize & Compress image in browser (max 1600px long side, JPEG quality 0.85, skip tiny images)
+      // Stage 1: Optimize & Compress image in browser (max 1280px long side, JPEG quality 0.85, skip tiny images)
       setAnalysisStage('optimizing');
-      setAnalysisStageMessage('Resizing and compressing photo in browser...');
+      setAnalysisStageMessage('Resizing and compressing photo(s) in browser at 1280px...');
       setUploadProgress(15);
 
       if (typeof fileOrUrl === 'string') {
@@ -1031,9 +1033,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         fileToProcess = fileOrUrl;
       }
 
-      const compression = await compressAndResizeImage(fileToProcess, 1600, 0.85);
+      const compression = await compressAndResizeImage(fileToProcess, 1280, 0.85);
       fileToProcess = compression.file;
       compressedBase64 = compression.base64;
+
+      // Compress optional additional photos (e.g. close-up of damage or model tag)
+      const additionalBase64s: string[] = [];
+      if (additionalPhotos && additionalPhotos.length > 0) {
+        for (const addPhoto of additionalPhotos.slice(0, 2)) {
+          const addComp = await compressAndResizeImage(addPhoto, 1280, 0.85);
+          additionalBase64s.push(addComp.base64);
+        }
+      }
       setUploadProgress(30);
 
       // Stage 2: Run Gemini Vision Analysis in PARALLEL with Cloudinary Upload, Moderation & phash
@@ -1057,6 +1068,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         headers,
         body: JSON.stringify({
           imageBase64: compressedBase64,
+          additionalImages: additionalBase64s,
           description,
         }),
       });
@@ -1180,7 +1192,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (lastAnalyzedFileOrUrl) {
       const descToUse = customDescription !== undefined ? customDescription : userDescription;
       setUserDescription(descToUse);
-      await analyzePhoto(lastAnalyzedFileOrUrl, descToUse);
+      await analyzePhoto(lastAnalyzedFileOrUrl, descToUse, lastAnalyzedAdditionalPhotos);
     }
   };
 
@@ -1195,10 +1207,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const catEstimate = getCategoryImpactEstimate(item.category, 'repaired');
     const waste = item.estimated_waste_saved_kg || catEstimate.wasteKg;
     const co2 = item.estimated_co2_saved_kg || catEstimate.co2Kg;
-    const savedInr =
-      item.replace_cost_inr?.min && item.repair_cost_inr?.min
-        ? Math.max(0, item.replace_cost_inr.min - item.repair_cost_inr.min)
-        : catEstimate.moneySavedInr;
+    const hasFault = Boolean(item.damage_visible) || item.recommended_action === 'repair';
+    const repairMin = item.repair_cost_inr?.min ?? 0;
+    const repairMax = item.repair_cost_inr?.max ?? 0;
+    const replaceMin = item.replace_cost_inr?.min ?? 0;
+    const replaceMax = item.replace_cost_inr?.max ?? 0;
+
+    let savedInr = 0;
+    if (hasFault && repairMin > 0 && replaceMin > 0) {
+      const repairMid = (repairMin + repairMax) / 2;
+      const replaceMid = (replaceMin + replaceMax) / 2;
+      savedInr = Math.max(0, Math.round(replaceMid - repairMid));
+    }
     const source = hasGemini ? 'gemini' : 'category_default';
 
     const afterImageUrl = afterPhoto?.url || currentAsset?.cleanedUrl || currentAsset?.originalUrl || null;
